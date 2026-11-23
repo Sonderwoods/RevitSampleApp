@@ -98,6 +98,9 @@ namespace Cloudburst.UI.ViewModels
             if (Session == null || _disposed) return;
             if (Session.Grid == null) { if (!live) Toast("Build the grid first (step 1).", "Warning"); return; }
             if (IsDynamicRunning) return;
+            // an explicit run always re-reads the model (objects may have moved); live runs only when something changed
+            if (!live || _modelDirty) await RebuildFromModelAsync();
+            if (Session.Grid == null) return;
             using (Busy(live ? "Updating bluespots…" : "Running the instant model…"))
             {
                 var r = await RunEngine(() => Session.RunInstant());
@@ -136,6 +139,9 @@ namespace Cloudburst.UI.ViewModels
             if (Session?.Grid == null) { Toast("Build the grid first (step 1).", "Warning"); return; }
             StopPlayback();
             _liveTimer.Stop();
+            await RebuildFromModelAsync();
+            // instant result on the same grid supplies the flow paths drawn on top of dynamic maps
+            try { var ir = await RunEngine(() => Session.RunInstant()); OnInstantResult(ir); } catch (Exception) { }
             var cts = new CancellationTokenSource();
             _dynCts = cts;
             IsDynamicRunning = true;

@@ -533,6 +533,22 @@
                                     <TextBlock Text="C = cloudburst runoff coefficient · n = Manning · f = infiltration" Style="{StaticResource T.Muted}" FontSize="10.5"/>
                                 </StackPanel>
                             </DockPanel>
+                            <Border Style="{StaticResource Inset}" Padding="10,8" Margin="0,0,0,8"
+                                    Visibility="{Binding HasHostEvents, Converter={StaticResource Vis}}">
+                                <CheckBox IsChecked="{Binding MaterialOverlay, Mode=TwoWay}">
+                                    <StackPanel>
+                                        <TextBlock Text="Colour model by material" FontWeight="SemiBold"/>
+                                        <TextBlock Text="Shades every assigned surface in its material colour, with labels and a legend" FontSize="10.5" Foreground="{StaticResource B.TextMuted}" TextWrapping="Wrap"/>
+                                    </StackPanel>
+                                </CheckBox>
+                            </Border>
+                            <Border Background="{StaticResource B.AccentSoft}" CornerRadius="8" Padding="10,7" Margin="0,0,0,8"
+                                    Visibility="{Binding HasSelectionInfo, Converter={StaticResource Vis}}">
+                                <DockPanel>
+                                    <TextBlock Text="&#xE8B3;" Style="{StaticResource T.Icon}" FontSize="12" Foreground="{StaticResource B.Accent}" Margin="0,1,8,0" VerticalAlignment="Top"/>
+                                    <TextBlock Text="{Binding SelectionText}" TextWrapping="Wrap" FontSize="11.5"/>
+                                </DockPanel>
+                            </Border>
                             <Grid>
                                 <TextBox Text="{Binding MaterialSearch, UpdateSourceTrigger=PropertyChanged}" c:Ix.Placeholder="Search materials…" Padding="30,6,9,6"/>
                                 <TextBlock Text="&#xE721;" FontFamily="{StaticResource F.Icon}" FontSize="12" Foreground="{StaticResource B.TextFaint}"
@@ -846,7 +862,7 @@
                                 <CheckBox IsChecked="{Binding LiveInstant, Mode=TwoWay}">
                                     <StackPanel>
                                         <TextBlock Text="Live" FontWeight="SemiBold"/>
-                                        <TextBlock Text="Re-runs automatically when rain, sewer or moisture changes" FontSize="10.5" Foreground="{StaticResource B.TextMuted}" TextWrapping="Wrap"/>
+                                        <TextBlock Text="Re-runs automatically when rain, sewer or moisture changes – or when you move or edit picked objects in the model" FontSize="10.5" Foreground="{StaticResource B.TextMuted}" TextWrapping="Wrap"/>
                                     </StackPanel>
                                 </CheckBox>
                             </Border>

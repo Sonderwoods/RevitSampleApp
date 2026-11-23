@@ -174,7 +174,13 @@ namespace Cloudburst.UI.ViewModels
                     UiLayer.TimeToPeak => ResultLayer.TimeToPeak,
                     _ => ResultLayer.Depth
                 };
-                await ShowVisualAsync(() => VisualFactory.FromDynamic(d, rl));
+                var fi = Session.Instant;
+                await ShowVisualAsync(() =>
+                {
+                    var v = VisualFactory.FromDynamic(d, rl);
+                    if (fi != null && ReferenceEquals(fi.Grid, d.Grid) && fi.FlowPaths != null) v.FlowPaths = fi.FlowPaths;
+                    return v;
+                });
                 return;
             }
             if (Session.Instant != null)

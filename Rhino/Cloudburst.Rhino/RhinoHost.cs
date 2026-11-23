@@ -24,7 +24,7 @@ namespace CloudburstRhino
     /// this class converts to and from the document's model units. All document access happens on Rhino's UI thread.
     /// No method throws: errors are logged to the command line and a safe fallback is returned.
     /// </summary>
-    public sealed class RhinoHost : ICloudburstHost
+    public sealed partial class RhinoHost : ICloudburstHost, ICloudburstHostEvents
     {
         public const string KeyRole = "cloudburst.role";
         public const string KeyMaterial = "cloudburst.material";
@@ -49,6 +49,7 @@ namespace CloudburstRhino
         public RhinoHost()
         {
             try { Palette = MaterialPalette.LoadDefault(); } catch (Exception ex) { Log("palette could not be loaded: " + ex.Message); }
+            try { HookDocEvents(); } catch (Exception ex) { Log("document events unavailable: " + ex.Message); }
         }
 
         private static RhinoDoc Doc => RhinoDoc.ActiveDoc;

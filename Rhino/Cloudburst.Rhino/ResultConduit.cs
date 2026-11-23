@@ -103,10 +103,17 @@ namespace CloudburstRhino
                 Mesh mesh; List<(Polyline line, int thickness)> flows;
                 lock (_lock) { mesh = _mesh; flows = _flows; }
                 if (mesh != null) e.Display.DrawMeshFalseColors(mesh);
-                foreach (var (line, t) in flows)
-                    if (t >= 3) e.Display.DrawPolyline(line, Halo, t + 2);
-                foreach (var (line, t) in flows)
-                    e.Display.DrawPolyline(line, RhinoConvert.FlowBlue, t);
+                // Flow paths sit on the analysis grid, which can be below a smoother/finer terrain surface:
+                // draw them without depth testing so they are always visible.
+                e.Display.PushDepthTesting(false);
+                try
+                {
+                    foreach (var (line, t) in flows)
+                        if (t >= 2) e.Display.DrawPolyline(line, Halo, t + 2);
+                    foreach (var (line, t) in flows)
+                        e.Display.DrawPolyline(line, RhinoConvert.FlowBlue, Math.Max(2, t));
+                }
+                finally { e.Display.PopDepthTesting(); }
             }
             catch { }
         }

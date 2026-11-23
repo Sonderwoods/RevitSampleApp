@@ -1,6 +1,21 @@
 # Cloudburst web app
 
 
+## Start it (Windows)
+
+Double-click **`Cloudburst Web.bat`** in the repo root. It starts `serve.py` and opens the browser.
+`Cloudburst Web (app window).bat` opens it in a chromeless Edge/Chrome app window instead.
+Close the console window to stop the server.
+
+## Install as an app (Edge / Chrome)
+
+The app is a PWA (manifest + service worker), and `http://localhost` counts as a secure origin, so with the server
+running: Edge → `…` menu → **Apps → Install this site as an app** (Chrome: install icon in the address bar).
+You then get a Start-menu entry, a taskbar icon and its own window. The app shell and the engine are cached, so the
+synthetic samples also work offline. The server must still run for DHM downloads, and the port must stay the same
+(the installed app is tied to `localhost:8123`).
+Tauri or Electron would only be needed for a single installer `.exe` that doesn't need Python.
+
 ## Pick a location (DHM terrain from an API key)
 
 Run the app with `python serve.py` (not `python -m http.server`). It serves the files and relays DHM requests to

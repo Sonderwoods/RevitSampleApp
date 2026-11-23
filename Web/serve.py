@@ -4,6 +4,8 @@ Local server for the Cloudburst web app: static files + a pass-through for DHM r
 
     python serve.py            # http://localhost:8123
     python serve.py 9000
+    python serve.py --open     # also open the browser
+    python serve.py --app      # open as an app window (Edge/Chrome --app), installable as a PWA
 
 /proxy/datafordeler?...    → https://wcs.datafordeler.dk/DHMNedboer/dhm_wcs/1.0.0/WCS?...
 /proxy/dataforsyningen?... → https://api.dataforsyningen.dk/dhm_wcs_DAF?...
@@ -54,8 +56,48 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         sys.stderr.write(f"{self.address_string()} {msg}\n")
 
 
+class Server(http.server.ThreadingHTTPServer):
+    # On Windows SO_REUSEADDR lets two servers share a port; disable it so a busy port is detected.
+    allow_reuse_address = os.name != "nt"
+    daemon_threads = True
+
+
+def open_browser(url, app):
+    import shutil, subprocess, webbrowser
+    if app:
+        candidates = [
+            os.path.expandvars(r"%ProgramFiles(x86)%\Microsoft\Edge\Application\msedge.exe"),
+            os.path.expandvars(r"%ProgramFiles%\Microsoft\Edge\Application\msedge.exe"),
+            os.path.expandvars(r"%ProgramFiles%\Google\Chrome\Application\chrome.exe"),
+            shutil.which("msedge") or "", shutil.which("google-chrome") or "", shutil.which("chromium") or "",
+        ]
+        for exe in candidates:
+            if exe and os.path.exists(exe):
+                subprocess.Popen([exe, f"--app={url}", "--window-size=1500,950"])
+                return
+    webbrowser.open(url)
+
+
 if __name__ == "__main__":
     os.chdir(os.path.dirname(os.path.abspath(__file__)))
-    port = int(sys.argv[1]) if len(sys.argv) > 1 else 8123
-    print(f"Cloudburst web app on http://localhost:{port}  (Ctrl+C to stop)")
-    http.server.ThreadingHTTPServer(("", port), Handler).serve_forever()
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    port = int(args[0]) if args else 8123
+    server = None
+    for p in range(port, port + 20):  # first free port
+        try:
+            server = Server(("", p), Handler)
+            port = p
+            break
+        except OSError:
+            continue
+    if server is None:
+        sys.exit(f"No free port in {port}..{port + 19}")
+    url = f"http://localhost:{port}/"
+    print(f"Cloudburst web app on {url}  (close this window or press Ctrl+C to stop)")
+    if "--open" in sys.argv or "--app" in sys.argv:
+        import threading
+        threading.Timer(0.6, open_browser, args=(url, "--app" in sys.argv)).start()
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass

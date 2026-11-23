@@ -278,7 +278,8 @@ namespace Cloudburst.UI.ViewModels
         // ---- demo + grid
         private Task BuildGridAsync() => BuildGridCoreAsync();
 
-        private async Task BuildGridCoreAsync()
+        /// <param name="quiet">Rebuild before a run: don't switch to the material map.</param>
+        private async Task BuildGridCoreAsync(bool quiet = false)
         {
             if (Session == null) return;
             if (IsDynamicRunning) { Toast("Wait for the dynamic run to finish (or cancel it) before rebuilding the grid.", "Warning"); return; }
@@ -300,13 +301,15 @@ namespace Cloudburst.UI.ViewModels
                 var sw = Stopwatch.StartNew();
                 var g = await RunEngine(() => Session.BuildGrid(site));
                 sw.Stop();
-                OnGridBuilt(g, sw.Elapsed.TotalMilliseconds);
+                OnGridBuilt(g, sw.Elapsed.TotalMilliseconds, quiet);
             }
+            _modelDirty = false;
+            if (quiet) return;
             SelectLayer(UiLayer.Materials, show: false);
             await ShowSelectedLayerAsync();
         }
 
-        private void OnGridBuilt(SiteGrid g, double ms)
+        private void OnGridBuilt(SiteGrid g, double ms, bool quiet = false)
         {
             HasGrid = true;
             GridStale = false;
@@ -318,7 +321,7 @@ namespace Cloudburst.UI.ViewModels
             foreach (var w in g.Warnings) if (!string.IsNullOrWhiteSpace(w)) GridWarnings.Add(w.Trim());
             if (!_hostTerrainBounds.IsValid && !_fileBounds.IsValid) _hostTerrainBounds = new Bounds2(g.X0, g.Y0, g.MaxX, g.MaxY);
             ResetResults();
-            Toast($"Grid ready: {GridDimsText} in {GridBuildText} ms.", "Success");
+            if (!quiet) Toast($"Grid ready: {GridDimsText} in {GridBuildText} ms.", "Success");
             RefreshSteps();
             Requery();
         }

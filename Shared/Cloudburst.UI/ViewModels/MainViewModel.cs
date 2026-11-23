@@ -72,6 +72,7 @@ namespace Cloudburst.UI.ViewModels
             }
 
             try { HostName = host.HostName; } catch (Exception) { HostName = "CAD host"; }
+            try { InitHostEvents(); } catch (Exception) { }
 
             BuildSteps();
             BuildCommands();
