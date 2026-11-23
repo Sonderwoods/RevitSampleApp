@@ -68,6 +68,28 @@ Performance check:
 cd Shared/cloudburst-core && cargo run --release --example bench
 ```
 
+## Debugging from Visual Studio (F5)
+
+Open `Cloudburst.sln` (VS 2022 17.8+, .NET 8 SDK). Rust is optional, because a prebuilt engine is in
+`Shared/cloudburst-core/prebuilt/win-x64/`. If you change the Rust code, run `cargo build --release` in
+`Shared/cloudburst-core` and the build picks up `target/release/cloudburst_core.dll` instead.
+
+| Startup project | Launch profile | What happens |
+| --- | --- | --- |
+| `Cloudburst.Rhino` | **Rhino 8** | Starts Rhino 8 (`/netcore`). `RHINO_PACKAGE_DIRS` points at `Rhino/dist/Debug/`, where every build copies the .rhp, .gha and DLLs. Type `Cloudburst`. |
+| `Cloudburst.Rhino` or `Cloudburst.Grasshopper` | **Rhino 8 + Grasshopper** | Same, and opens Grasshopper (components under the *Cloudburst* tab). |
+| `Cloudburst.Revit` | **Revit 2026** | A Debug build writes `%AppData%\Autodesk\Revit\Addins\2026\Cloudburst.Debug.addin`, which points at `bin\Debug\…\Cloudburst.Revit.dll`, so nothing is copied and breakpoints just work. |
+| `Cloudburst.Standalone` | (default) | The shared panel and a 2D map without any CAD app. This is the fastest UI loop. |
+
+Notes:
+* If Rhino doesn't pick the plug-in up from `RHINO_PACKAGE_DIRS`, drag `Rhino/dist/Debug/Cloudburst.Rhino.rhp` into Rhino once.
+  Rhino remembers that path, and later builds overwrite the file there.
+* Don't install the release Revit add-in (`install.ps1`) while debugging. Both register the same dockable pane.
+  Delete `Cloudburst.Debug.addin` to stop loading the debug build.
+* Revit and Rhino lock the DLLs while running, so close them before rebuilding.
+* The launch profiles assume the default install paths (`C:\Program Files\Rhino 8\…`, `C:\Program Files\Autodesk\Revit 2026\…`).
+  Edit `Properties/launchSettings.json` if yours differ.
+
 ## Install
 
 * **Rhino 8**: drag `dist/Rhino/Cloudburst.Rhino.rhp` into Rhino, run `Cloudburst`. Grasshopper: copy

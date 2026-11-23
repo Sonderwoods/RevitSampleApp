@@ -34,6 +34,8 @@
   <PropertyGroup>
     <CloudburstNativeDll>$(MSBuildThisFileDirectory)..\..\Shared\cloudburst-core\target\x86_64-pc-windows-gnu\release\cloudburst_core.dll</CloudburstNativeDll>
     <CloudburstNativeDll Condition="!Exists('$(CloudburstNativeDll)')">$(MSBuildThisFileDirectory)..\..\Shared\cloudburst-core\target\x86_64-pc-windows-msvc\release\cloudburst_core.dll</CloudburstNativeDll>
+    <CloudburstNativeDll Condition="!Exists('$(CloudburstNativeDll)')">$(MSBuildThisFileDirectory)..\..\Shared\cloudburst-core\target\release\cloudburst_core.dll</CloudburstNativeDll>
+    <CloudburstNativeDll Condition="!Exists('$(CloudburstNativeDll)')">$(MSBuildThisFileDirectory)..\..\Shared\cloudburst-core\prebuilt\win-x64\cloudburst_core.dll</CloudburstNativeDll>
   </PropertyGroup>
   <Target Name="CloudburstCopyNative" AfterTargets="Build" Condition="Exists('$(CloudburstNativeDll)')">
     <Copy SourceFiles="$(CloudburstNativeDll)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
@@ -47,5 +49,30 @@
     <Copy SourceFiles="$(OutDir)Cloudburst.addin" DestinationFolder="$(RevitAddinsDir)" ContinueOnError="true" />
     <Copy SourceFiles="@(CloudburstDeployFiles)" DestinationFolder="$(RevitAddinsDir)Cloudburst\" ContinueOnError="true" />
     <Message Importance="high" Text="Cloudburst deployed to $(RevitAddinsDir)" />
+  </Target>
+  <!-- F5 debugging: Debug builds on Windows write %AppData%\Autodesk\Revit\Addins\2026\Cloudburst.Debug.addin pointing at
+       this build's DLL (no copying, breakpoints work). Disable with -p:RevitDebugAddin=false. Remove the file to unload.
+       Don't install the release add-in at the same time (both would register the same dockable pane). -->
+  <PropertyGroup>
+    <RevitDebugAddin Condition="'$(RevitDebugAddin)' == '' And '$(Configuration)' == 'Debug' And '$(OS)' == 'Windows_NT'">true</RevitDebugAddin>
+  </PropertyGroup>
+  <Target Name="CloudburstWriteDebugAddin" AfterTargets="Build" Condition="'$(RevitDebugAddin)' == 'true'">
+    <PropertyGroup>
+      <_DbgAddinDir>$(APPDATA)\Autodesk\Revit\Addins\2026\</_DbgAddinDir>
+      <_DbgAddinXml><![CDATA[<?xml version="1.0" encoding="utf-8"?>
+<RevitAddIns>
+  <AddIn Type="Application">
+    <Name>Cloudburst (debug build)</Name>
+    <Assembly>$(TargetPath)</Assembly>
+    <FullClassName>Cloudburst.Revit.App</FullClassName>
+    <ClientId>6f1c2a8e-4b7d-4e3a-9c51-2d8f0b7a4c19</ClientId>
+    <VendorId>CLBU</VendorId>
+    <VendorDescription>Cloudburst – debug build from $(MSBuildProjectDirectory)</VendorDescription>
+  </AddIn>
+</RevitAddIns>]]></_DbgAddinXml>
+    </PropertyGroup>
+    <MakeDir Directories="$(_DbgAddinDir)" ContinueOnError="true" />
+    <WriteLinesToFile File="$(_DbgAddinDir)Cloudburst.Debug.addin" Lines="$(_DbgAddinXml)" Overwrite="true" WriteOnlyWhenDifferent="true" ContinueOnError="true" />
+    <Message Importance="high" Text="Cloudburst: debug add-in manifest → $(_DbgAddinDir)Cloudburst.Debug.addin" />
   </Target>
 </Project>
