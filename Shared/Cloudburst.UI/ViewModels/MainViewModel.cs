@@ -124,6 +124,8 @@ namespace Cloudburst.UI.ViewModels
                 _visited[value] = true;
                 Raise(nameof(CurrentStep), nameof(NextStepTitle), nameof(HasNextStep));
                 RefreshSteps();
+                // material view is automatic: on while the Surfaces (material picker) step is open, off elsewhere
+                MaterialOverlay = value == 1;
             }
         }
         public StepViewModel CurrentStep => Steps.Count > 0 ? Steps[_currentStepIndex] : null;

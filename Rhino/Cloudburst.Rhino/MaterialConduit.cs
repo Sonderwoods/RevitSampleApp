@@ -21,17 +21,21 @@ namespace CloudburstRhino
         private List<(string name, Color color)> _legend = new List<(string, Color)>();
         private BoundingBox _bbox = BoundingBox.Empty;
 
-        public void Set(List<(Mesh, Color)> fills, List<(Polyline, Color)> outlines, List<(Point3d, string, Color)> labels, List<(string, Color)> legend)
+        /// <summary>Set the overlay. Geometry is lifted by <paramref name="lift"/> (model units, ≈10 mm) so it never z-fights
+        /// with the objects it colours.</summary>
+        public void Set(List<(Mesh, Color)> fills, List<(Polyline, Color)> outlines, List<(Point3d, string, Color)> labels, List<(string, Color)> legend, double lift = 0)
         {
             var f = new List<(Mesh, DisplayMaterial, Color)>();
             var bb = BoundingBox.Empty;
-            foreach (var (m, c) in fills)
+            var up = Transform.Translation(0, 0, lift);
+            foreach (var (m0, c) in fills)
             {
-                if (m == null) continue;
+                if (m0 == null) continue;
+                var m = m0.DuplicateMesh(); m.Transform(up);
                 f.Add((m, new DisplayMaterial(c, 0.25), c));
                 bb.Union(m.GetBoundingBox(false));
             }
-            foreach (var (l, _) in outlines) bb.Union(l.BoundingBox);
+            foreach (var (l, _) in outlines) { l.Transform(up); bb.Union(l.BoundingBox); }
             lock (_lock) { _fills = f; _outlines = outlines; _labels = labels; _legend = legend; _bbox = bb; }
         }
 

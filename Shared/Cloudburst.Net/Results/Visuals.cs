@@ -128,7 +128,7 @@ namespace Cloudburst.Results
     public static class VisualFactory
     {
         /// <summary>Lift above the terrain so results do not z-fight, m.</summary>
-        public static double ZOffset { get; set; } = 0.05;
+        public static double ZOffset { get; set; } = 0.10;
 
         /// <summary>Do not draw results on building footprints (roof sheet flow is not ponding).</summary>
         public static bool SkipBuildings { get; set; } = true;
@@ -259,7 +259,7 @@ namespace Cloudburst.Results
             var vals = new float[g.Count];
             var ramp = new ColorRamp("Materials", "", Enumerable.Range(0, colors.Length).Select(i => (double)i).ToArray(), colors, g.Palette.Materials.Select(m => m.Name).ToArray());
             for (int k = 0; k < g.Count; k++) vals[k] = g.Building[k] >= 0 ? float.NaN : g.Material[k];
-            return BuildMesh(g, vals, ramp, null, null, 0.02, false);
+            return BuildMesh(g, vals, ramp, null, null, 0.01, false);
         }
     }
 

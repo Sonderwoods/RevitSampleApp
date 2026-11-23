@@ -176,7 +176,7 @@ namespace CloudburstRhino
                 var d = pal.Default;
                 if (!used.ContainsKey(d.Name)) used[d.Name + " (unassigned terrain)"] = Color.FromArgb(d.Argb);
             }
-            _materialConduit.Set(fills, outlines, labels, used.Select(kv => (kv.Key, kv.Value)).ToList());
+            _materialConduit.Set(fills, outlines, labels, used.Select(kv => (kv.Key, kv.Value)).ToList(), 0.01 / Scale(doc));
         }
     }
 }

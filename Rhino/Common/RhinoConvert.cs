@@ -224,7 +224,7 @@ namespace CloudburstRhinoCommon
         }
 
         /// <summary>Split a flow path into runs of constant thickness (model units), lifted slightly to stay above the terrain.</summary>
-        public static List<(Polyline line, int thickness)> FlowSegments(Polyline3 p, double scale, double zLiftM = 0.15)
+        public static List<(Polyline line, int thickness)> FlowSegments(Polyline3 p, double scale, double zLiftM = 0.20)
         {
             var result = new List<(Polyline, int)>();
             if (p == null || p.Count < 2) return result;
