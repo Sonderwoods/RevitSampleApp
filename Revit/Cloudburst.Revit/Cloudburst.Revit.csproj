@@ -1,0 +1,51 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Revit 2026 add-in for Cloudburst (rainwater / cloudburst flood screening). -->
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>false</UseWindowsForms>
+    <PlatformTarget>x64</PlatformTarget>
+    <RootNamespace>Cloudburst.Revit</RootNamespace>
+    <AssemblyName>Cloudburst.Revit</AssemblyName>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+    <AppendTargetFrameworkToOutputPath>true</AppendTargetFrameworkToOutputPath>
+    <!-- Set to true (dotnet build -p:DeployToRevit=true) to copy the add-in into %AppData%\Autodesk\Revit\Addins\2026 after build (Windows only). -->
+    <DeployToRevit Condition="'$(DeployToRevit)' == ''">false</DeployToRevit>
+    <RevitAddinsDir>$(AppData)\Autodesk\Revit\Addins\2026\</RevitAddinsDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPI" Version="2026.*" ExcludeAssets="runtime" PrivateAssets="all" />
+    <PackageReference Include="Nice3point.Revit.Api.RevitAPIUI" Version="2026.*" ExcludeAssets="runtime" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\Shared\Cloudburst.Net\Cloudburst.Net.csproj" />
+    <ProjectReference Include="..\..\Shared\Cloudburst.UI\Cloudburst.UI.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="Cloudburst.addin" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="install.ps1" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <!-- Safety net: make sure the native engine lands next to the add-in even if the transitive None item does not flow. -->
+  <PropertyGroup>
+    <CloudburstNativeDll>$(MSBuildThisFileDirectory)..\..\Shared\cloudburst-core\target\x86_64-pc-windows-gnu\release\cloudburst_core.dll</CloudburstNativeDll>
+    <CloudburstNativeDll Condition="!Exists('$(CloudburstNativeDll)')">$(MSBuildThisFileDirectory)..\..\Shared\cloudburst-core\target\x86_64-pc-windows-msvc\release\cloudburst_core.dll</CloudburstNativeDll>
+  </PropertyGroup>
+  <Target Name="CloudburstCopyNative" AfterTargets="Build" Condition="Exists('$(CloudburstNativeDll)')">
+    <Copy SourceFiles="$(CloudburstNativeDll)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+  </Target>
+
+  <!-- Optional deploy: %AppData%\Autodesk\Revit\Addins\2026\Cloudburst.addin + Cloudburst\*.dll -->
+  <Target Name="CloudburstDeploy" AfterTargets="CloudburstCopyNative" Condition="'$(DeployToRevit)' == 'true' And '$(OS)' == 'Windows_NT'">
+    <ItemGroup>
+      <CloudburstDeployFiles Include="$(OutDir)*.dll;$(OutDir)*.pdb;$(OutDir)*.deps.json" />
+    </ItemGroup>
+    <Copy SourceFiles="$(OutDir)Cloudburst.addin" DestinationFolder="$(RevitAddinsDir)" ContinueOnError="true" />
+    <Copy SourceFiles="@(CloudburstDeployFiles)" DestinationFolder="$(RevitAddinsDir)Cloudburst\" ContinueOnError="true" />
+    <Message Importance="high" Text="Cloudburst deployed to $(RevitAddinsDir)" />
+  </Target>
+</Project>
