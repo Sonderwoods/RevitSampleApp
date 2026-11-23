@@ -1,0 +1,19 @@
+[package]
+name = "cloudburst-desktop"
+version = "0.1.0"
+edition = "2021"
+description = "Cloudburst desktop app (Tauri 2): the web front end + WebAssembly engine in a native window, with DHM downloads done natively."
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+ureq = "2"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true

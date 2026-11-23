@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Shared WPF UI used by both Rhino 8 and Revit 2026 (Windows). -->
+  <PropertyGroup>
+    <TargetFramework>net7.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <RootNamespace>Cloudburst.UI</RootNamespace>
+    <AssemblyName>Cloudburst.UI</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Cloudburst.Net\Cloudburst.Net.csproj" />
+  </ItemGroup>
+</Project>

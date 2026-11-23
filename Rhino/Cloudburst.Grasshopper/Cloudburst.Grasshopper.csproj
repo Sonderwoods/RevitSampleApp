@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Grasshopper components for Rhino 8. Output: Cloudburst.Grasshopper.gha next to Cloudburst.Net.dll and cloudburst_core.dll. -->
+  <PropertyGroup>
+    <TargetFramework>net7.0-windows</TargetFramework>
+    <UseWindowsForms>true</UseWindowsForms>
+    <RootNamespace>CloudburstGH</RootNamespace>
+    <AssemblyName>Cloudburst.Grasshopper</AssemblyName>
+    <TargetExt>.gha</TargetExt>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <NoWarn>$(NoWarn);MSB3270;NU1701</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="RhinoCommon" Version="8.0.23304.9001" ExcludeAssets="runtime" PrivateAssets="all" />
+    <PackageReference Include="Grasshopper" Version="8.0.23304.9001" ExcludeAssets="runtime" PrivateAssets="all" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\Shared\Cloudburst.Net\Cloudburst.Net.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="..\Common\*.cs" Link="Common\%(Filename)%(Extension)" />
+  </ItemGroup>
+  <!-- One folder with everything (rhp + gha + managed + native dlls): Rhino/dist/<Configuration>/ -->
+  <Target Name="CopyToDist" AfterTargets="Build">
+    <ItemGroup>
+      <CloudburstDist Include="$(TargetDir)*.rhp;$(TargetDir)*.gha;$(TargetDir)*.dll" />
+    </ItemGroup>
+    <Copy SourceFiles="@(CloudburstDist)" DestinationFolder="$(MSBuildThisFileDirectory)..\dist\$(Configuration)\" SkipUnchangedFiles="true" />
+  </Target>
+</Project>

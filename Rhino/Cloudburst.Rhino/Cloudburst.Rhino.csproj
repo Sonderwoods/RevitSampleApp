@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Rhino 8 plug-in. Output: Cloudburst.Rhino.rhp next to Cloudburst.Net.dll, Cloudburst.UI.dll and cloudburst_core.dll. -->
+  <PropertyGroup>
+    <TargetFramework>net7.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <RootNamespace>CloudburstRhino</RootNamespace>
+    <AssemblyName>Cloudburst.Rhino</AssemblyName>
+    <TargetExt>.rhp</TargetExt>
+    <AppendTargetFrameworkToOutputPath>true</AppendTargetFrameworkToOutputPath>
+    <EnableDynamicLoading>true</EnableDynamicLoading>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <NoWarn>$(NoWarn);MSB3270;NU1701</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="RhinoCommon" Version="8.0.23304.9001" ExcludeAssets="runtime" PrivateAssets="all" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\Shared\Cloudburst.Net\Cloudburst.Net.csproj" />
+    <ProjectReference Include="..\..\Shared\Cloudburst.UI\Cloudburst.UI.csproj" />
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="..\Common\*.cs" Link="Common\%(Filename)%(Extension)" />
+  </ItemGroup>
+  <!-- One folder with everything (rhp + gha + managed + native dlls): Rhino/dist/<Configuration>/ -->
+  <Target Name="CopyToDist" AfterTargets="Build">
+    <ItemGroup>
+      <CloudburstDist Include="$(TargetDir)*.rhp;$(TargetDir)*.gha;$(TargetDir)*.dll" />
+    </ItemGroup>
+    <Copy SourceFiles="@(CloudburstDist)" DestinationFolder="$(MSBuildThisFileDirectory)..\dist\$(Configuration)\" SkipUnchangedFiles="true" />
+  </Target>
+</Project>
