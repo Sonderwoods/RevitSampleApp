@@ -663,7 +663,7 @@ namespace CloudburstRhino
             var chars = s.Select(ch => ch == ':' ? '.' : ch == '/' || ch == '\\' || ch == '"' || ch == '{' || ch == '}' || ch == '[' || ch == ']' || ch == '(' || ch == ')' || ch == ';' || char.IsControl(ch) ? ' ' : ch).ToArray();
             var name = new string(chars).Trim();
             if (name.Length == 0) name = "Result";
-            try { if (!Layer.IsValidName(name)) name = "Result"; } catch { }
+            try { if (!Rhino.DocObjects.ModelComponent.IsValidComponentName(name)) name = "Result"; } catch { }
             return name;
         }
 
@@ -712,8 +712,12 @@ namespace CloudburstRhino
                 }
 
                 // ground height lookup (metres) on the created terrain, falling back to the analytic demo surface
+                // The stock demo (origin 0,0) has an analytic surface: exact and much faster than ray casts.
+                var tb = demo.GetTerrainBounds();
+                bool analytic = tb.IsValid && Math.Abs(tb.MinX) < 1e-6 && Math.Abs(tb.MinY) < 1e-6 && Math.Abs(tb.Width - DemoSite.Width) < 1e-6 && Math.Abs(tb.Height - DemoSite.Height) < 1e-6;
                 double GroundZ(double xm, double ym)
                 {
+                    if (analytic) return DemoSite.TerrainZ(xm, ym);
                     foreach (var m in terrainMeshes)
                     {
                         var ray = new Ray3d(new Point3d(xm / s, ym / s, 1e5 / s), -Vector3d.ZAxis);

@@ -62,7 +62,7 @@ namespace Cloudburst.Revit
         }
 
         /// <summary>Tear drop: tip at (cx, top), round belly of radius r whose bottom touches <paramref name="bottom"/>.</summary>
-        private static Geometry DropGeometry(double cx, double top, double r, double bottom)
+        private static System.Windows.Media.Geometry DropGeometry(double cx, double top, double r, double bottom)
         {
             double cy = bottom - r;
             // tangent points from the tip to the circle
