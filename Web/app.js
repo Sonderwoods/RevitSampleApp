@@ -5,6 +5,7 @@ import { h, $, $$, clamp, debounce, fmtInt, fmt1, fmtVol, fmtArea, fmtCm, fmtClo
 import { DEPTH, VELOCITY, HAZARD, TPEAK, DIFF, LAYERS } from './js/colors.js';
 import { baseCanvas, buildingsCanvas, overlayCanvas, materialCanvas, materialsPresent, sampleAt, cellAt, differenceArray } from './js/raster.js';
 import { MapView, roundRect } from './js/mapview.js';
+import { openDhmPicker } from './js/dhm.js';
 
 // ------------------------------------------------------------------------------------------------ constants
 const LOCATIONS = {
@@ -111,7 +112,13 @@ function renderGallery() {
       h('h3', 'Custom site'),
       h('p', 'Drop any GeoTIFF or ESRI ASCII terrain here, or click to browse.'),
       h('div.card-meta', h('span.meta-item.mono', '.tif  .tiff  .asc'))));
-  real.append(drop);
+  const pick = h('button.card.custom-card.dhm-card', { onclick: () => openDhmPicker(openFetchedTerrain) },
+    h('div.custom-inner',
+      h('div.custom-icon', { html: icon('pin', 26) }),
+      h('h3', 'Pick a location'),
+      h('p', 'Search an address or click the map, paste your Datafordeler / Dataforsyningen key, and the DHM terrain is fetched straight into the browser.'),
+      h('div.card-meta', h('span.meta-item.mono', 'DHM/Terræn · 0.4 m'))));
+  real.append(pick, drop);
   const nSyn = S.info.samples.filter((s) => s.kind !== 'real').length, nReal = S.info.samples.length - nSyn;
   $('#heroStats').innerHTML = '';
   $('#heroStats').append(
@@ -296,6 +303,14 @@ function showSiteDrop() {
     h('div.dz-sub', 'or click to browse'),
     s.dhmFile ? h('div.dz-file', { html: `${icon('file', 14)} <span class="mono">${s.dhmFile}</span>` }) : null);
   card.append(dz);
+  if (isReal) {
+    const [x0, y0, x1, y1] = s.bbox; const ll = utm32ToLatLon((x0 + x1) / 2, (y0 + y1) / 2);
+    card.append(h('button.btn.primary.fetch-dhm', {
+      html: `${icon('download', 15)} Fetch terrain with API key`,
+      onclick: () => openDhmPicker(async ({ bytes }) => { S.siteDesc = { terrainBytes: bytes }; await loadGrid(); },
+        { lat: ll.lat, lon: ll.lon, size: Math.round(x1 - x0), name: S.site.name }),
+    }));
+  }
   if (s.dhmFile) card.append(h('div.hint', { html: `${icon('terminal', 14)} <span>Produce it with <code>tools/fetch_dhm.py</code> (Dataforsyningen token, DHM/Terræn 0.4 m). Files placed in <code>Web/data/</code> load automatically.</span>` }));
   el.append(card);
   for (const ev of ['dragenter', 'dragover']) dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.add('over'); });
@@ -326,6 +341,11 @@ function setupGlobalDrop() {
     e.preventDefault(); depth = 0; document.body.classList.remove('dragging-file'); $$('.dropzone').forEach((d) => d.classList.remove('over'));
     const f = e.dataTransfer.files && e.dataTransfer.files[0]; if (f) onTerrainFile(f);
   });
+}
+
+async function openFetchedTerrain({ bytes, info }) {
+  history.replaceState(null, '', '#/custom');
+  await openSite('custom', { info, bytes });
 }
 
 async function onTerrainFile(file) {
