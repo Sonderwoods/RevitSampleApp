@@ -34,6 +34,10 @@ Revit/
 One engine, three front-ends. The Rust core has no CAD dependencies, so the same crate can later be compiled to
 WebAssembly or wrapped in a small server for a web viewer.
 
+![Demo site: instant vs dynamic model](docs/demo_results.png)
+
+*Built-in demo site (300 × 200 m, 1 m grid, T = 100 CDS 83 mm). Top: instant model (bluespots and flow paths, 20 ms). Bottom: dynamic model max depth (4.5 h simulated in 42 s on 4 cores, mass error 3e-6). Rendered straight from engine output.*
+
 ## Build
 
 Windows (produces `dist/`):

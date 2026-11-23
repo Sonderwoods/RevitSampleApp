@@ -59,7 +59,7 @@ namespace Cloudburst.Results
         public static ColorRamp Depth(double minDepth = 0.01) => new ColorRamp("Water depth", "m",
             new[] { minDepth, 0.10, 0.20, 0.30, 0.50 },
             new[] { C(0xFFB9E3F7), C(0xFF4FA8E0), C(0xFF1F78C8), C(0xFF0D4FA0), C(0xFF08306B) },
-            new[] { "0–10 cm", "10–20 cm  ▲ 10 cm target", "20–30 cm", "30–50 cm", "> 50 cm" });
+            new[] { $"{minDepth * 100:0}–10 cm", "10–20 cm  ▲ 10 cm target", "20–30 cm", "30–50 cm", "> 50 cm" });
 
         public static ColorRamp Velocity() => new ColorRamp("Max velocity", "m/s",
             new[] { 0.05, 0.25, 0.5, 1.0, 2.0 },
@@ -130,6 +130,12 @@ namespace Cloudburst.Results
         /// <summary>Lift above the terrain so results do not z-fight, m.</summary>
         public static double ZOffset { get; set; } = 0.05;
 
+        /// <summary>Do not draw results on building footprints (roof sheet flow is not ponding).</summary>
+        public static bool SkipBuildings { get; set; } = true;
+
+        /// <summary>Minimum depth drawn for dynamic depth maps (thin rain-on-grid films are hidden), m.</summary>
+        public static double DynamicMinDepth { get; set; } = 0.03;
+
         /// <summary>Classed quad mesh for a per-cell value array. Cells under the ramp's first break are skipped.
         /// The quad sits on the water surface (terrain + depth) when <paramref name="depth"/> is given.</summary>
         public static ColoredMesh BuildMesh(SiteGrid g, float[] values, ColorRamp ramp, float[] depth = null, Func<int, bool> include = null)
@@ -141,6 +147,7 @@ namespace Cloudburst.Results
                 {
                     int k = j * g.Nx + i;
                     if (g.Active[k] == 0 || (include != null && !include(k))) continue;
+                    if (SkipBuildings && g.Building[k] >= 0) continue;
                     int c = ramp.ClassOf(values[k]);
                     if (c < 0) continue;
                     int argb = ramp.Colors[c];
@@ -203,7 +210,7 @@ namespace Cloudburst.Results
             switch (layer)
             {
                 case ResultLayer.DepthAtTime:
-                    values = r.GetFrame(frame < 0 ? r.FrameCount - 1 : frame); depth = values; v.Ramp = ColorRamp.Depth();
+                    values = r.GetFrame(frame < 0 ? r.FrameCount - 1 : frame); depth = values; v.Ramp = ColorRamp.Depth(DynamicMinDepth);
                     double t = r.FrameCount > 0 ? r.FrameTimes[Math.Max(0, Math.Min(r.FrameCount - 1, frame < 0 ? r.FrameCount - 1 : frame))] : 0;
                     v.Title = $"Depth at t = {TimeSpan.FromSeconds(t):h\\:mm}"; break;
                 case ResultLayer.Velocity:
@@ -213,7 +220,7 @@ namespace Cloudburst.Results
                 case ResultLayer.TimeToPeak:
                     values = r.TPeak.Select(x => x < 0 ? float.NaN : x / 60f).ToArray(); depth = r.HMax; v.Ramp = ColorRamp.TimeToPeak(); v.Title = "Time to peak"; include = k => r.HMax[k] > 0.05f; break;
                 default:
-                    values = r.HMax; depth = r.HMax; v.Ramp = ColorRamp.Depth(); v.Title = "Max water depth"; break;
+                    values = r.HMax; depth = r.HMax; v.Ramp = ColorRamp.Depth(DynamicMinDepth); v.Title = "Max water depth"; break;
             }
             v.Mesh = BuildMesh(g, values, v.Ramp, null, include);
             if (depth != null) LiftToWater(v.Mesh, g, depth);
@@ -249,8 +256,8 @@ namespace Cloudburst.Results
             var vals = new float[g.Count];
             var ramp = new ColorRamp("Materials", "", Enumerable.Range(0, colors.Length).Select(i => (double)i).ToArray(), colors, g.Palette.Materials.Select(m => m.Name).ToArray());
             for (int k = 0; k < g.Count; k++) vals[k] = g.Building[k] >= 0 ? float.NaN : g.Material[k];
-            var old = ZOffset; ZOffset = 0.02;
-            try { return BuildMesh(g, vals, ramp); } finally { ZOffset = old; }
+            var old = ZOffset; var sb = SkipBuildings; ZOffset = 0.02; SkipBuildings = false;
+            try { return BuildMesh(g, vals, ramp); } finally { ZOffset = old; SkipBuildings = sb; }
         }
     }
 
