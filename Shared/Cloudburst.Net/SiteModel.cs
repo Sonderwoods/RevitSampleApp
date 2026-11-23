@@ -20,10 +20,14 @@ namespace Cloudburst
         public List<WallLine> Walls { get; } = new List<WallLine>();
         /// <summary>Bridge decks to remove from the terrain (IN-4).</summary>
         public List<Polygon2> BridgeCuts { get; } = new List<Polygon2>();
+        /// <summary>Terrain raster files (GeoTIFF e.g. DHM/Terræn 0.4 m, or Esri ASCII .asc) loaded by the engine (IN-1).</summary>
+        public List<string> TerrainFiles { get; } = new List<string>();
+        /// <summary>Pixel step when loading <see cref="TerrainFiles"/> (1 = full resolution).</summary>
+        public int TerrainFileStep { get; set; } = 1;
         /// <summary>Optional analysis boundary. When null the terrain extent is used.</summary>
         public Polygon2 Boundary { get; set; }
 
-        public bool HasTerrain => Terrain.Count > 0 || DesignTerrain.Count > 0;
+        public bool HasTerrain => Terrain.Count > 0 || DesignTerrain.Count > 0 || TerrainFiles.Count > 0;
 
         public Bounds2 GetTerrainBounds()
         {

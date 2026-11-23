@@ -210,6 +210,74 @@ pub unsafe extern "C" fn cb_site_set_boundary(site: *mut Site, xs: *const f64, y
     }
 }
 
+/// Load a terrain raster (GeoTIFF, e.g. DHM/Terræn, or Esri ASCII grid) and add it as terrain, sampled every
+/// `step` pixels (1 = full resolution). Returns the number of triangles added, or −1 on error (see cb_last_error).
+#[no_mangle]
+pub unsafe extern "C" fn cb_site_add_terrain_file(site: *mut Site, path: *const c_char, step: i32, design: i32) -> i32 {
+    guard(-1, || {
+        let site = site.as_mut().ok_or("site is null")?;
+        if path.is_null() {
+            return Err("path is null".into());
+        }
+        let p = CStr::from_ptr(path).to_string_lossy().to_string();
+        let r = crate::raster::Raster::load(&p)?;
+        let m = r.to_mesh(step.max(1) as usize);
+        let n = (m.tris.len() / 3) as i32;
+        if design != 0 {
+            site.design_terrain.push(m)
+        } else {
+            site.terrain.push(m)
+        }
+        Ok(n)
+    })
+}
+
+/// Read a terrain raster and return it as a mesh (for hosts that want to bake it). Caller frees with cb_mesh_free.
+#[no_mangle]
+pub unsafe extern "C" fn cb_raster_to_mesh(path: *const c_char, step: i32) -> *mut Mesh {
+    guard(std::ptr::null_mut(), || {
+        if path.is_null() {
+            return Err("path is null".into());
+        }
+        let p = CStr::from_ptr(path).to_string_lossy().to_string();
+        let r = crate::raster::Raster::load(&p)?;
+        Ok(Box::into_raw(Box::new(r.to_mesh(step.max(1) as usize))))
+    })
+}
+
+/// which: 0 = vertices (f64 xyz), returns count of doubles; 1 = triangles (i32), returns count of ints.
+#[no_mangle]
+pub unsafe extern "C" fn cb_mesh_copy(m: *const Mesh, which: i32, out_f64: *mut f64, out_i32: *mut i32, len: i32) -> i32 {
+    let Some(m) = m.as_ref() else { return 0 };
+    if which == 0 {
+        copy_out(&m.verts, out_f64, len)
+    } else {
+        let t: Vec<i32> = m.tris.iter().map(|&x| x as i32).collect();
+        copy_out(&t, out_i32, len)
+    }
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn cb_mesh_free(m: *mut Mesh) {
+    if !m.is_null() {
+        drop(Box::from_raw(m));
+    }
+}
+
+/// Export a per-cell array (len = nx·ny, south-up) for this grid as an Esri ASCII grid (OUT-10). Returns 1 on success.
+#[no_mangle]
+pub unsafe extern "C" fn cb_grid_export_ascii(g: *const Grid, values: *const f32, len: i32, path: *const c_char) -> i32 {
+    guard(0, || {
+        let g = g.as_ref().ok_or("grid is null")?;
+        if path.is_null() || (len as usize) < g.len() {
+            return Err("invalid arguments".into());
+        }
+        let p = CStr::from_ptr(path).to_string_lossy().to_string();
+        crate::raster::write_ascii(std::path::Path::new(&p), g.nx, g.ny, g.x0, g.y0, g.dx, s(values, len), -9999.0).map_err(|e| e.to_string())?;
+        Ok(1)
+    })
+}
+
 // ------------------------------------------------------------------ grid
 
 #[repr(C)]

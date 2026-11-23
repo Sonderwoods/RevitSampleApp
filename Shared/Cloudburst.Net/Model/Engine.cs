@@ -76,6 +76,9 @@ namespace Cloudburst.Model
             {
                 foreach (var m in site.Terrain) AddMesh(s, m, 0);
                 foreach (var m in site.DesignTerrain) AddMesh(s, m, 1);
+                foreach (var f in site.TerrainFiles)
+                    if (NativeMethods.cb_site_add_terrain_file(s, f, Math.Max(1, site.TerrainFileStep), 0) < 0)
+                        throw new InvalidOperationException(NativeMethods.LastError());
                 foreach (var b in site.Buildings)
                 {
                     int drain = (int)b.Drainage;
@@ -175,6 +178,27 @@ namespace Cloudburst.Model
                 NativeMethods.cb_dynamic_copy_probe(h, i, r.ProbeDepth[i], len);
             }
             return r;
+        }
+
+        /// <summary>Load a GeoTIFF / ASCII grid as a triangle mesh in metres (e.g. to bake DHM terrain into the CAD model).</summary>
+        public static TriangleMesh LoadTerrainRaster(string path, int step = 1)
+        {
+            var m = NativeMethods.cb_raster_to_mesh(path, step);
+            if (m == IntPtr.Zero) throw new InvalidOperationException(NativeMethods.LastError());
+            try
+            {
+                int nv = NativeMethods.cb_mesh_copy(m, 0, null, null, 0), nt = NativeMethods.cb_mesh_copy(m, 1, null, null, 0);
+                var v = new double[nv]; var t = new int[nt];
+                NativeMethods.cb_mesh_copy(m, 0, v, null, nv); NativeMethods.cb_mesh_copy(m, 1, null, t, nt);
+                return new TriangleMesh(v, t, System.IO.Path.GetFileNameWithoutExtension(path));
+            }
+            finally { NativeMethods.cb_mesh_free(m); }
+        }
+
+        /// <summary>Export a per-cell array (e.g. HMax) as an Esri ASCII grid (.asc) georeferenced to the grid (OUT-10).</summary>
+        public static void ExportAscii(SiteGrid grid, float[] values, string path)
+        {
+            if (NativeMethods.cb_grid_export_ascii(grid.Handle, values, values.Length, path) == 0) throw new InvalidOperationException(NativeMethods.LastError());
         }
 
         public static RetentionResult Retention(SiteGrid grid, RetentionInput input)

@@ -199,6 +199,11 @@ namespace Cloudburst.Native
         [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)] public static extern void cb_site_add_bridge_cut(IntPtr site, double[] xs, double[] ys, int n);
         [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)] public static extern void cb_site_set_boundary(IntPtr site, double[] xs, double[] ys, int n);
 
+        [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)] public static extern int cb_site_add_terrain_file(IntPtr site, [MarshalAs(UnmanagedType.LPUTF8Str)] string path, int step, int design);
+        [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)] public static extern IntPtr cb_raster_to_mesh([MarshalAs(UnmanagedType.LPUTF8Str)] string path, int step);
+        [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)] public static extern int cb_mesh_copy(IntPtr mesh, int which, double[] outF64, int[] outI32, int len);
+        [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)] public static extern void cb_mesh_free(IntPtr mesh);
+        [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)] public static extern int cb_grid_export_ascii(IntPtr grid, float[] values, int len, [MarshalAs(UnmanagedType.LPUTF8Str)] string path);
         [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)] public static extern IntPtr cb_grid_build(IntPtr site, [MarshalAs(UnmanagedType.LPUTF8Str)] string paletteJson, ref GridSettingsNative settings);
         [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)] public static extern void cb_grid_free(IntPtr grid);
         [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)] public static extern int cb_grid_info(IntPtr grid, out GridInfo info);

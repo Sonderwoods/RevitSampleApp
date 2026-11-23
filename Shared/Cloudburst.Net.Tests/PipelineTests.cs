@@ -80,3 +80,31 @@ namespace Cloudburst.Net.Tests
         }
     }
 }
+
+namespace Cloudburst.Net.Tests
+{
+    public class RasterTests
+    {
+        [Fact]
+        public void AsciiTerrainImportAndExport()
+        {
+            var dir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "cb_net_raster");
+            System.IO.Directory.CreateDirectory(dir);
+            var asc = System.IO.Path.Combine(dir, "dhm.asc");
+            var sb = new System.Text.StringBuilder("ncols 60\nnrows 40\nxllcorner 500000\nyllcorner 6200000\ncellsize 0.4\nNODATA_value -9999\n");
+            for (int r = 0; r < 40; r++) { for (int c = 0; c < 60; c++) sb.Append(10 - 0.01 * c + 0.3 * Math.Sin(r * 0.3)).Append(' '); sb.Append('\n'); }
+            System.IO.File.WriteAllText(asc, sb.ToString().Replace(',', '.'));
+            var site = new SiteModel();
+            site.TerrainFiles.Add(asc);
+            using var g = Engine.BuildGrid(site, MaterialPalette.LoadDefault(), new Grid.GridSettings { CellSize = 0.5 });
+            Assert.InRange(g.X0, 500000, 500001);
+            Assert.True(g.Nx > 40);
+            var res = Engine.RunInstant(g, Scenario.Default);
+            var outPath = System.IO.Path.Combine(dir, "depth.asc");
+            Engine.ExportAscii(g, res.Depth, outPath);
+            Assert.True(System.IO.File.Exists(outPath));
+            var mesh = Engine.LoadTerrainRaster(asc, 2);
+            Assert.True(mesh.TriangleCount > 100);
+        }
+    }
+}

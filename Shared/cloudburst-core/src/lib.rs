@@ -19,6 +19,7 @@ pub mod hydro;
 pub mod instant;
 pub mod palette;
 pub mod rain;
+pub mod raster;
 pub mod retention;
 
 pub use dynamic::{run_dynamic, DynamicResult, MassBalance};
