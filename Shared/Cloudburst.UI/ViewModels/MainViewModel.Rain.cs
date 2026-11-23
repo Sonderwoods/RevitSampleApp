@@ -34,7 +34,7 @@ namespace Cloudburst.UI.ViewModels
                 var presets = RainEvent.Presets();
                 string[] glyphs = { "", "", "", "" };
                 for (int i = 0; i < presets.Count; i++)
-                    RainOptions.Add(new RainOptionViewModel { Kind = RainKind.Preset, Title = presets[i].Name, Event = presets[i], Glyph = glyphs[Math.Min(i, glyphs.Length - 1)] });
+                    RainOptions.Add(new RainOptionViewModel { Kind = RainKind.Preset, Title = presets[i].Name, Event = presets[i] });
             }
             catch (Exception ex) { if (EngineError == null) ShowError("Rain presets", ex); }
 
