@@ -76,6 +76,7 @@ namespace Cloudburst.UI.ViewModels
             BuildSteps();
             BuildCommands();
             InitSite();
+            InitSamples();
             InitSurfaces();
             InitRain();
             InitSimulate();

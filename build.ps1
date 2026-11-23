@@ -19,9 +19,9 @@ Copy-Item "$root/Rhino/Cloudburst.Rhino/bin/Release/net7.0-windows/*" "$dist/Rhi
 Copy-Item "$root/Rhino/Cloudburst.Grasshopper/bin/Release/net7.0-windows/Cloudburst.Grasshopper.gha" "$dist/Rhino" -Force
 Copy-Item "$root/Revit/Cloudburst.Revit/bin/Release/net8.0-windows/*" "$dist/Revit/Cloudburst" -Recurse -Force
 Move-Item "$dist/Revit/Cloudburst/Cloudburst.addin" "$dist/Revit/Cloudburst.addin" -Force -ErrorAction SilentlyContinue
-if (Test-Path "$root/Shared/Cloudburst.Standalone/bin/Release/net8.0-windows") {
+if (Test-Path "$root/Shared/Cloudburst.Standalone/bin/Release/net8.0-windows/win-x64") {
   New-Item -ItemType Directory "$dist/Standalone" | Out-Null
-  Copy-Item "$root/Shared/Cloudburst.Standalone/bin/Release/net8.0-windows/*" "$dist/Standalone" -Recurse -Force
+  Copy-Item "$root/Shared/Cloudburst.Standalone/bin/Release/net8.0-windows/win-x64/*" "$dist/Standalone" -Recurse -Force
 }
 Write-Host "dist/ ready:"
 Get-ChildItem $dist -Recurse -Filter *.dll | Where-Object Name -like "cloudburst_core.dll" | ForEach-Object { $_.FullName }

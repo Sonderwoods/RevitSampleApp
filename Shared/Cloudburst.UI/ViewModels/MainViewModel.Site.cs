@@ -276,21 +276,6 @@ namespace Cloudburst.UI.ViewModels
         }
 
         // ---- demo + grid
-        private async Task LoadDemoAsync()
-        {
-            using (Busy("Creating the demo site…"))
-            {
-                var demo = DemoSite.Create();
-                bool ok = await OnUi(() => Host.CreateDemoSiteAsync(demo));
-                RefreshPicks();
-                if (!ok) { Toast($"{HostName} could not create the demo site.", "Warning"); return; }
-                RememberBounds(demo);
-                UpdateCellEstimate();
-                Toast("Demo site created: 300 × 200 m block with streets, park and six buildings.", "Success");
-            }
-            await BuildGridCoreAsync();
-        }
-
         private Task BuildGridAsync() => BuildGridCoreAsync();
 
         private async Task BuildGridCoreAsync()

@@ -249,4 +249,21 @@ namespace Cloudburst.UI.ViewModels
         public string Name => System.IO.Path.GetFileName(Path);
         public ICommand RemoveCommand { get; set; }
     }
+
+    /// <summary>One entry of the sample library (Site step).</summary>
+    public sealed class SampleItemViewModel : ObservableObject
+    {
+        public Cloudburst.Demo.SampleInfo Info { get; set; }
+        public string Id => Info?.Id;
+        public string Name => Info?.Name;
+        public string Description => Info?.Description;
+        public bool IsAvailable { get; set; } = true;
+        public bool IsReal => Info?.IsReal ?? false;
+        public bool IsBeforeAfter => !string.IsNullOrWhiteSpace(Info?.CompareWith);
+        /// <summary>"Synthetic", "Real site" or "Before / after".</summary>
+        public string Badge => IsBeforeAfter ? "Before / after" : IsReal ? "Real site" : "Synthetic";
+        public string UnavailableHint => IsAvailable ? null : "Download terrain: python tools/fetch_dhm.py --token <Dataforsyningen token>";
+        public string CompareHint { get; set; }
+        public ICommand LoadCommand { get; set; }
+    }
 }

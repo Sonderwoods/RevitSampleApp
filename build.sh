@@ -7,6 +7,8 @@ cd "$root/Shared/cloudburst-core"
 cargo test --release
 cargo build --release
 cargo build --release --target x86_64-pc-windows-gnu
+cargo build --release --target wasm32-unknown-unknown --no-default-features
+cp target/wasm32-unknown-unknown/release/cloudburst_core.wasm "$root/Web/engine/"
 cd "$root"
 dotnet test Shared/Cloudburst.Net.Tests -c Release
 dotnet build Cloudburst.sln -c Release
@@ -15,6 +17,10 @@ cp -r Rhino/Cloudburst.Rhino/bin/Release/net7.0-windows/* dist/Rhino/
 cp Rhino/Cloudburst.Grasshopper/bin/Release/net7.0-windows/Cloudburst.Grasshopper.gha dist/Rhino/
 cp -r Revit/Cloudburst.Revit/bin/Release/net8.0-windows/* dist/Revit/Cloudburst/
 [ -f dist/Revit/Cloudburst/Cloudburst.addin ] && mv dist/Revit/Cloudburst/Cloudburst.addin dist/Revit/
-if [ -d Shared/Cloudburst.Standalone/bin/Release/net8.0-windows ]; then mkdir -p dist/Standalone && cp -r Shared/Cloudburst.Standalone/bin/Release/net8.0-windows/* dist/Standalone/; fi
+if [ -d Shared/Cloudburst.Standalone/bin/Release/net8.0-windows/win-x64 ]; then mkdir -p dist/Standalone && cp -r Shared/Cloudburst.Standalone/bin/Release/net8.0-windows/win-x64/* dist/Standalone/; fi
 rm -f dist/*/libcloudburst_core.so dist/Revit/Cloudburst/libcloudburst_core.so
+find dist -name "libcloudburst_core.so" -delete; find dist -name "*.pdb" -delete
+# web app + real-site tool
+mkdir -p dist/Web && cp -r Web/* dist/Web/ 2>/dev/null || true
+cp tools/fetch_dhm.py dist/
 echo "dist ready"; find dist -name cloudburst_core.dll

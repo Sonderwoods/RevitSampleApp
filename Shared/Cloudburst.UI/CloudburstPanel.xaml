@@ -299,20 +299,64 @@
                         <TextBlock Text="{Binding Steps[0].Description}" Style="{StaticResource T.Muted}" Margin="0,3,0,0"/>
                     </StackPanel>
 
-                    <!-- demo hero -->
-                    <Border Style="{StaticResource Card}" Background="{StaticResource B.HeroGradient}" BorderBrush="{StaticResource B.AccentLine}">
-                        <Grid>
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*"/>
-                                <ColumnDefinition Width="Auto"/>
-                            </Grid.ColumnDefinitions>
-                            <StackPanel VerticalAlignment="Center" Margin="0,0,10,0">
-                                <TextBlock Text="Try it in one click" FontWeight="SemiBold" FontSize="13" Foreground="{StaticResource B.Text}"/>
-                                <TextBlock Text="A 300 × 200 m urban block with streets, kerbs, a park and six buildings." Style="{StaticResource T.Muted}" Margin="0,3,0,0"/>
-                            </StackPanel>
-                            <Button Grid.Column="1" Style="{StaticResource Btn.Big}" Content="Load demo site" c:Ix.Glyph="&#xE80F;"
-                                    Command="{Binding LoadDemoCommand}" VerticalAlignment="Center"/>
-                        </Grid>
+                    <!-- sample library -->
+                    <Border Style="{StaticResource Card}" Background="{StaticResource B.HeroGradient}" BorderBrush="{StaticResource B.AccentLine}" Padding="14,12,14,8">
+                        <StackPanel>
+                            <DockPanel Margin="0,0,0,6">
+                                <Border Style="{StaticResource CardIcon}">
+                                    <TextBlock Text="&#xE80F;" Style="{StaticResource T.Icon}" FontSize="13" Foreground="{StaticResource B.Accent}"/>
+                                </Border>
+                                <StackPanel VerticalAlignment="Center">
+                                    <TextBlock Text="Load a sample" Style="{StaticResource T.H2}"/>
+                                    <TextBlock Text="Creates the site in the model, picks the matching rain and builds the grid" Style="{StaticResource T.Muted}" FontSize="11"/>
+                                </StackPanel>
+                            </DockPanel>
+                            <ItemsControl ItemsSource="{Binding Samples}" Focusable="False">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border x:Name="Row" CornerRadius="10" Padding="10,8" Margin="0,4,0,0" Background="{StaticResource B.Surface2}"
+                                                BorderBrush="{StaticResource B.Border}" BorderThickness="1">
+                                            <Grid>
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="*"/>
+                                                    <ColumnDefinition Width="Auto"/>
+                                                </Grid.ColumnDefinitions>
+                                                <StackPanel x:Name="Texts" Margin="0,0,8,0">
+                                                    <WrapPanel>
+                                                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="12.5" Margin="0,0,7,0" Foreground="{StaticResource B.Text}"/>
+                                                        <Border x:Name="Badge" CornerRadius="8" Padding="7,1" Background="{StaticResource B.Surface4}" VerticalAlignment="Center">
+                                                            <TextBlock x:Name="BadgeText" Text="{Binding Badge}" FontSize="10" FontWeight="Bold" Foreground="{StaticResource B.TextMuted}"/>
+                                                        </Border>
+                                                    </WrapPanel>
+                                                    <TextBlock Text="{Binding Description}" FontSize="11" Foreground="{StaticResource B.TextMuted}" TextWrapping="Wrap"
+                                                               MaxHeight="30" TextTrimming="CharacterEllipsis" Margin="0,2,0,0" ToolTip="{Binding Description}"/>
+                                                    <TextBlock Text="{Binding UnavailableHint}" FontSize="10.5" Foreground="{StaticResource B.Warn}" TextWrapping="Wrap" Margin="0,3,0,0"
+                                                               Visibility="{Binding UnavailableHint, Converter={StaticResource Has}}"/>
+                                                    <TextBlock Text="{Binding CompareHint}" FontSize="10.5" Foreground="{StaticResource B.Accent}" TextWrapping="Wrap" Margin="0,3,0,0"
+                                                               Visibility="{Binding CompareHint, Converter={StaticResource Has}}"/>
+                                                </StackPanel>
+                                                <Button Grid.Column="1" x:Name="LoadBtn" Style="{StaticResource Btn.Primary}" Content="Load" Padding="12,6" VerticalAlignment="Center"
+                                                        Command="{Binding LoadCommand}"/>
+                                            </Grid>
+                                        </Border>
+                                        <DataTemplate.Triggers>
+                                            <DataTrigger Binding="{Binding IsReal}" Value="True">
+                                                <Setter TargetName="Badge" Property="Background" Value="{StaticResource B.GoodSoft}"/>
+                                                <Setter TargetName="BadgeText" Property="Foreground" Value="{StaticResource B.Good}"/>
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding IsBeforeAfter}" Value="True">
+                                                <Setter TargetName="Badge" Property="Background" Value="{StaticResource B.AccentSoft}"/>
+                                                <Setter TargetName="BadgeText" Property="Foreground" Value="{StaticResource B.Accent}"/>
+                                            </DataTrigger>
+                                            <DataTrigger Binding="{Binding IsAvailable}" Value="False">
+                                                <Setter TargetName="Texts" Property="Opacity" Value="0.55"/>
+                                                <Setter TargetName="LoadBtn" Property="Style" Value="{StaticResource Btn.Secondary}"/>
+                                            </DataTrigger>
+                                        </DataTemplate.Triggers>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
                     </Border>
 
                     <!-- picks -->
