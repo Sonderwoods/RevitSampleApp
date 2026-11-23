@@ -4,7 +4,7 @@
 import { h, $, toast, icon } from './util.js';
 
 const PROVIDERS = {
-  datafordeler: { label: 'Datafordeler API key', url: 'https://wcs.datafordeler.dk/DHMNedboer/dhm_wcs/1.0.0/WCS', param: 'apikey', help: 'datafordeler.dk → Selvbetjening → API-nøgler' },
+  datafordeler: { label: 'Datafordeler API key', url: 'https://wcs.datafordeler.dk/DHMNedboer/dhm_wcs/1.0.0/WCS', param: 'apikey', help: 'Get a free API key at <a href="https://portal.datafordeler.dk/hjem" target="_blank" rel="noopener">portal.datafordeler.dk</a> (log in with MitID/NemID or e-mail)' },
   dataforsyningen: { label: 'Dataforsyningen token', url: 'https://api.dataforsyningen.dk/dhm_wcs_DAF', param: 'token', help: 'dataforsyningen.dk → Log ind → Mine tokens' },
 };
 const LS = { key: 'cb.dhm.key', provider: 'cb.dhm.provider' };
@@ -32,11 +32,24 @@ export async function fetchDhm(bbox, { provider, key, res = 0.4, coverage = 'dhm
   const width = Math.round((x1 - x0) / res), height = Math.round((y1 - y0) / res);
   const q = new URLSearchParams({ service: 'WCS', request: 'GetCoverage', version: '1.0.0', coverage, crs: 'EPSG:25832', bbox: `${x0},${y0},${x1},${y1}`, width, height, format: 'GTiff' });
   q.set(p.param, key.trim());
+  // Desktop app (Tauri): download natively – no CORS, no local server.
+  const tauri = typeof window !== 'undefined' && window.__TAURI__ && window.__TAURI__.core;
+  if (tauri) {
+    try {
+      const buf = new Uint8Array(await tauri.invoke('fetch_dhm', { provider: provider in PROVIDERS ? provider : 'datafordeler', query: q.toString() }));
+      if (!(buf.length > 4 && ((buf[0] === 0x49 && buf[1] === 0x49) || (buf[0] === 0x4d && buf[1] === 0x4d)))) throw new Error(new TextDecoder().decode(buf.slice(0, 300)));
+      return buf;
+    } catch (e) {
+      let msg = String(e && e.message ? e.message : e);
+      try { const j = JSON.parse(msg.replace(/^HTTP \d+: /, '')); msg = (/^HTTP (\d+)/.exec(msg) ? `Key rejected (${/^HTTP (\d+)/.exec(msg)[1]}). ` : '') + (j.detail || j.title || msg); } catch { /* plain text */ }
+      throw new Error(msg);
+    }
+  }
   let r;
   const viaProxy = await hasProxy();
   const url = viaProxy ? `proxy/${provider in PROVIDERS ? provider : 'datafordeler'}?${q}` : `${p.url}?${q}`;
   try { r = await fetch(url); } catch (e) {
-    throw new Error(`The browser blocked the request to ${new URL(p.url).host} (CORS). Start the app with "python serve.py" instead of "python -m http.server" – it relays DHM requests.`);
+    throw new Error(`The browser blocked the request to ${new URL(p.url).host} (CORS). Use the Cloudburst desktop app, or run the web app locally with "Cloudburst Web.bat" / "python serve.py" – both download DHM without this restriction.`);
   }
   const buf = new Uint8Array(await r.arrayBuffer());
   const isTiff = buf.length > 4 && ((buf[0] === 0x49 && buf[1] === 0x49) || (buf[0] === 0x4d && buf[1] === 0x4d));
@@ -52,6 +65,7 @@ export async function fetchDhm(bbox, { provider, key, res = 0.4, coverage = 'dhm
 let proxyP = null;
 /** True when the page is served by Web/serve.py (which relays WCS requests and avoids CORS problems). */
 export function hasProxy() {
+  if (typeof window !== 'undefined' && window.__TAURI__) return Promise.resolve(false);
   if (!proxyP) proxyP = fetch('proxy/ping', { cache: 'no-store' }).then((r) => r.ok).catch(() => false);
   return proxyP;
 }

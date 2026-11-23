@@ -60,3 +60,7 @@ nunit-*.xml
 target/
 dist/
 /.vs
+
+# Tauri
+Desktop/src-tauri/target/
+Desktop/src-tauri/gen/

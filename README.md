@@ -90,6 +90,16 @@ Notes:
 * The launch profiles assume the default install paths (`C:\Program Files\Rhino 8\…`, `C:\Program Files\Autodesk\Revit 2026\…`).
   Edit `Properties/launchSettings.json` if yours differ.
 
+## Desktop app and web app
+
+* **Desktop app (Windows)**: `Desktop/` is a Tauri 2 app that wraps the web front end and downloads DHM terrain natively.
+  CI (`desktop-windows` job) builds the `.msi` and setup `.exe` installers; `./build.sh` also cross-compiles a portable
+  `dist/Desktop/Cloudburst.exe`. It needs the WebView2 runtime, which ships with Windows 10/11. See [Desktop/README.md](Desktop/README.md).
+* **Web app**: `Web/`. Double-click `Cloudburst Web.bat`, or open the GitHub Pages site (`.github/workflows/pages.yml`).
+  It can be installed as an Edge/Chrome app. See [Web/README.md](Web/README.md).
+* **Real terrain** for any Danish location needs a free Datafordeler API key from
+  **https://portal.datafordeler.dk/hjem** (MitID/NemID or e-mail login). See [docs/DHM_API_KEY.md](docs/DHM_API_KEY.md).
+
 ## Install
 
 * **Rhino 8**: drag `dist/Rhino/Cloudburst.Rhino.rhp` into Rhino, run `Cloudburst`. Grasshopper: copy

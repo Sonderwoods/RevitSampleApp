@@ -1124,6 +1124,6 @@ function pulseLive() { const l = $('#live'); if (!l) return; l.classList.remove(
 window.__cb = S;
 
 // installable app (PWA): register the service worker when served over http(s)
-if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+if ('serviceWorker' in navigator && location.protocol.startsWith('http') && !window.__TAURI__) {
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
 }

@@ -16,6 +16,18 @@ synthetic samples also work offline. The server must still run for DHM downloads
 (the installed app is tied to `localhost:8123`).
 Tauri or Electron would only be needed for a single installer `.exe` that doesn't need Python.
 
+## API key for real terrain
+
+Real Danish terrain needs a free **Datafordeler API key** from **https://portal.datafordeler.dk/hjem**
+(log in with MitID/NemID or e-mail). Step by step: [../docs/DHM_API_KEY.md](../docs/DHM_API_KEY.md).
+
+## GitHub Pages
+
+`.github/workflows/pages.yml` publishes `Web/` as a static site. One-time setup in the repository: Settings → Pages →
+Source **GitHub Actions**. If you deploy from a non-default branch, allow that branch under Settings → Environments →
+github-pages. On Pages, DHM downloads go straight from the browser to Datafordeler. If the browser blocks that (CORS),
+use the desktop app or `Cloudburst Web.bat`.
+
 ## Pick a location (DHM terrain from an API key)
 
 Run the app with `python serve.py` (not `python -m http.server`). It serves the files and relays DHM requests to

@@ -23,4 +23,6 @@ find dist -name "libcloudburst_core.so" -delete; find dist -name "*.pdb" -delete
 # web app + real-site tool
 mkdir -p dist/Web && cp -r Web/* dist/Web/ 2>/dev/null || true
 cp tools/fetch_dhm.py dist/
+# desktop app (Tauri), portable exe; installers come from CI (desktop-windows job)
+if [ -d Desktop/src-tauri ]; then (cd Desktop/src-tauri && cargo build --release --target x86_64-pc-windows-gnu) && mkdir -p dist/Desktop && cp Desktop/src-tauri/target/x86_64-pc-windows-gnu/release/cloudburst-desktop.exe dist/Desktop/Cloudburst.exe; fi
 echo "dist ready"; find dist -name cloudburst_core.dll

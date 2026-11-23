@@ -4,6 +4,7 @@ Download DHM/Terræn (Danmarks Højdemodel) terrain GeoTIFFs for the real sample
 
 Credentials (either):
   * Datafordeler API key  (env DATAFORDELER_API_KEY or --apikey)  → https://wcs.datafordeler.dk  (preferred)
+    Get one free at https://portal.datafordeler.dk/hjem (MitID/NemID or e-mail login).
   * Dataforsyningen token (env DATAFORSYNINGEN_TOKEN or --token)   → https://api.dataforsyningen.dk
 
     python3 tools/fetch_dhm.py --token YOUR_TOKEN                      # all real samples → samples/*.tif
