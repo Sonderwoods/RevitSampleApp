@@ -201,7 +201,17 @@ namespace Cloudburst.UI.ViewModels
                 if (_disposed) return;
                 CurrentVisual = v;
                 UpdateLegend(v);
-                if (v != null) await HostCall(() => Host.ShowAsync(v));
+                if (v != null)
+                {
+                    var show = HostCall(() => Host.ShowAsync(v));
+                    var done = await Task.WhenAny(show, Task.Delay(TimeSpan.FromSeconds(45)));
+                    if (done != show)
+                    {
+                        Toast($"{HostName} is taking long to draw the preview – it will appear when the host is ready.", "Warning");
+                        _ = show.ContinueWith(t => { var _ = t.Exception; }, TaskScheduler.Default);
+                    }
+                    else await show; // propagate host errors
+                }
             }
             finally { _hostGate.Release(); }
         }

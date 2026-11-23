@@ -1,7 +1,6 @@
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-                    xmlns:c="clr-namespace:Cloudburst.UI.Controls"
-                    xmlns:sys="clr-namespace:System;assembly=mscorlib">
+                    xmlns:c="clr-namespace:Cloudburst.UI.Controls">
 
     <!-- ==============================================================================
          Cloudburst dark theme. Self-contained: merged into the panel's own Resources

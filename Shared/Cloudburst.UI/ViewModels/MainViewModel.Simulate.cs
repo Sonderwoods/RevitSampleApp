@@ -111,8 +111,9 @@ namespace Cloudburst.UI.ViewModels
                 }
                 else
                 {
-                    if (ActiveSource != ResultSource.Dynamic || !HasDynamic) SetSource(ResultSource.Instant);
-                    if (ActiveSource == ResultSource.Instant && (SelectedLayerOption?.DynamicOnly == true || SelectedLayer == UiLayer.Materials)) SelectLayer(UiLayer.Depth, show: false);
+                    // live exploration always shows the fresh instant result (a dynamic result is out of date now)
+                    SetSource(ResultSource.Instant);
+                    if (SelectedLayerOption?.DynamicOnly == true || SelectedLayer == UiLayer.Materials) SelectLayer(UiLayer.Depth, show: false);
                 }
                 await ShowSelectedLayerAsync();
             }
@@ -154,6 +155,7 @@ namespace Cloudburst.UI.ViewModels
                 _dynTask = task;
                 try { r = await task; }
                 catch (Exception) when (cts.IsCancellationRequested) { cancelled = true; }
+                catch (Exception) { DynamicSummary = "Failed – see the message below"; DynEtaText = "–"; throw; }
                 if (r != null) await Task.Run(() => ComputeDynamicStats(r));
             }
             finally

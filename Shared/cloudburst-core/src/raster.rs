@@ -75,7 +75,19 @@ impl Raster {
 
 pub fn read_ascii(path: &str) -> Result<Raster, String> {
     let f = File::open(path).map_err(|e| format!("{path}: {e}"))?;
-    let mut rd = BufReader::new(f);
+    parse_ascii(BufReader::new(f), path)
+}
+
+/// Load from memory (browser uploads). TIFF is detected by its magic bytes, anything else is parsed as ASCII grid.
+pub fn from_bytes(bytes: &[u8], name: &str) -> Result<Raster, String> {
+    if bytes.len() > 4 && (&bytes[0..2] == b"II" || &bytes[0..2] == b"MM") {
+        decode_tiff(std::io::Cursor::new(bytes), name)
+    } else {
+        parse_ascii(BufReader::new(bytes), name)
+    }
+}
+
+fn parse_ascii<R: BufRead>(mut rd: R, path: &str) -> Result<Raster, String> {
     let (mut nx, mut ny, mut x0, mut y0, mut dx, mut nodata, mut center) = (0usize, 0usize, 0.0, 0.0, 1.0, None, false);
     let mut line = String::new();
     let mut data = Vec::new();
@@ -121,7 +133,11 @@ pub fn read_ascii(path: &str) -> Result<Raster, String> {
 
 pub fn read_geotiff(path: &str) -> Result<Raster, String> {
     let f = File::open(path).map_err(|e| format!("{path}: {e}"))?;
-    let mut dec = Decoder::new(BufReader::new(f)).map_err(|e| format!("{path}: {e}"))?.with_limits(tiff::decoder::Limits::unlimited());
+    decode_tiff(BufReader::new(f), path)
+}
+
+fn decode_tiff<R: std::io::Read + std::io::Seek>(reader: R, path: &str) -> Result<Raster, String> {
+    let mut dec = Decoder::new(reader).map_err(|e| format!("{path}: {e}"))?.with_limits(tiff::decoder::Limits::unlimited());
     let (w, h) = dec.dimensions().map_err(|e| e.to_string())?;
     let scale = dec.get_tag_f64_vec(Tag::Unknown(33550)).ok();
     let tie = dec.get_tag_f64_vec(Tag::Unknown(33922)).ok();

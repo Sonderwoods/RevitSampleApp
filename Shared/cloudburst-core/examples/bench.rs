@@ -21,7 +21,7 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     let dyn_side: usize = args.get(1).and_then(|s| s.parse().ok()).unwrap_or(500);
     let minutes: f64 = args.get(2).and_then(|s| s.parse().ok()).unwrap_or(30.0);
-    println!("threads: {}", rayon::current_num_threads());
+    
 
     for side in [1000usize, 2000] {
         let g = terrain(side);

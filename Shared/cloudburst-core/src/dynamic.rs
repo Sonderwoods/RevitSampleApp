@@ -5,7 +5,7 @@
 use crate::grid::Grid;
 use crate::hydro::{derive, Scenario};
 use crate::rain::RainSeries;
-use rayon::prelude::*;
+use crate::sys::*;
 
 const G: f64 = 9.81;
 
@@ -92,7 +92,7 @@ pub fn run_dynamic_with(g: &Grid, sc: &Scenario, rain: &RainSeries, probes: &[us
 }
 
 fn run_inner(g: &Grid, sc: &Scenario, rain: &RainSeries, probes: &[usize], h0: Option<&[f32]>, progress: &mut dyn FnMut(&Progress) -> bool) -> DynamicResult {
-    let t_start = std::time::Instant::now();
+    let t_start = Clock::now();
     let (nx, ny, n) = (g.nx, g.ny, g.len());
     let dx = g.dx;
     let a = dx * dx;
@@ -150,7 +150,7 @@ fn run_inner(g: &Grid, sc: &Scenario, rain: &RainSeries, probes: &[usize], h0: O
 
     let mut mb = MassBalance::default();
     let mut t = 0.0f64;
-    let mut last_report = std::time::Instant::now();
+    let mut last_report = Clock::now();
     let mut steps: i64 = 0;
     let gf = G as f32;
     let dxf = dx as f32;
@@ -348,7 +348,7 @@ fn run_inner(g: &Grid, sc: &Scenario, rain: &RainSeries, probes: &[usize], h0: O
                 }
                 r
             })
-            .reduce(RowAcc::default, |a, b| RowAcc { rain: a.rain + b.rain, ia: a.ia + b.ia, inf: a.inf + b.inf, sewer: a.sewer + b.sewer, stored: a.stored + b.stored, hmax: a.hmax.max(b.hmax) });
+            .reduce_id(RowAcc::default, |a, b| RowAcc { rain: a.rain + b.rain, ia: a.ia + b.ia, inf: a.inf + b.inf, sewer: a.sewer + b.sewer, stored: a.stored + b.stored, hmax: a.hmax.max(b.hmax) });
 
         mb.rain_m3 += acc.rain * a;
         mb.initial_loss_m3 += acc.ia * a;
@@ -375,9 +375,9 @@ fn run_inner(g: &Grid, sc: &Scenario, rain: &RainSeries, probes: &[usize], h0: O
             frame_times.push(t);
             next_frame += out_dt;
         }
-        if last_report.elapsed().as_millis() > 200 || t >= t_end {
-            last_report = std::time::Instant::now();
-            let pr = Progress { fraction: t / t_end, time_s: t, dt_s: dt, h_max_m: hmax_prev as f64, volume_m3: mb.stored_m3, elapsed_s: t_start.elapsed().as_secs_f64() };
+        if last_report.ms() > 200.0 || t >= t_end {
+            last_report = Clock::now();
+            let pr = Progress { fraction: t / t_end, time_s: t, dt_s: dt, h_max_m: hmax_prev as f64, volume_m3: mb.stored_m3, elapsed_s: t_start.secs() };
             if !progress(&pr) {
                 mb.cancelled = 1;
                 break;
@@ -386,7 +386,7 @@ fn run_inner(g: &Grid, sc: &Scenario, rain: &RainSeries, probes: &[usize], h0: O
     }
     mb.simulated_s = t;
     mb.steps = steps;
-    mb.elapsed_s = t_start.elapsed().as_secs_f64();
+    mb.elapsed_s = t_start.secs();
     let outs = mb.initial_loss_m3 + mb.infiltrated_m3 + mb.sewer_m3 + mb.boundary_out_m3 + mb.stored_m3;
     mb.initial_water_m3 = initial_m3;
     let ins = mb.rain_m3 + initial_m3;

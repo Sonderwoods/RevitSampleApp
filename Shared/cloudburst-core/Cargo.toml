@@ -10,10 +10,14 @@ name = "cloudburst_core"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-rayon = "1.10"
+rayon = { version = "1.10", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tiff = "0.9"
+
+[features]
+default = ["parallel"]
+parallel = ["rayon"]
 
 [profile.release]
 opt-level = 3

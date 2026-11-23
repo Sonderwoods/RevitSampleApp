@@ -123,6 +123,55 @@ pub extern "C" fn cb_scenario_default(out: *mut Scenario) {
     }
 }
 
+// ------------------------------------------------------------------ memory (WebAssembly hosts)
+
+/// Allocate `len` bytes (8-aligned) for passing arrays/strings from JavaScript. Free with cb_dealloc.
+#[no_mangle]
+pub extern "C" fn cb_alloc(len: i32) -> *mut u8 {
+    let n = (len.max(0) as usize + 7) / 8;
+    let mut v: Vec<u64> = vec![0; n.max(1)];
+    let p = v.as_mut_ptr() as *mut u8;
+    std::mem::forget(v);
+    p
+}
+
+#[no_mangle]
+pub unsafe extern "C" fn cb_dealloc(p: *mut u8, len: i32) {
+    if !p.is_null() {
+        let n = (len.max(0) as usize + 7) / 8;
+        drop(Vec::from_raw_parts(p as *mut u64, n.max(1), n.max(1)));
+    }
+}
+
+// ------------------------------------------------------------------ samples
+
+/// JSON array of sample projects (synthetic and real Danish sites).
+#[no_mangle]
+pub extern "C" fn cb_samples_json() -> *mut c_char {
+    to_c(&serde_json::to_string(&crate::samples::catalogue()).unwrap_or_default())
+}
+
+/// Full JSON of a synthetic sample (height field, buildings, surfaces, kerbs), or null.
+#[no_mangle]
+pub unsafe extern "C" fn cb_sample_json(id: *const c_char) -> *mut c_char {
+    guard(std::ptr::null_mut(), || {
+        let id = if id.is_null() { "" } else { CStr::from_ptr(id).to_str().unwrap_or("") };
+        let s = crate::samples::generate(id).ok_or_else(|| format!("unknown sample '{id}'"))?;
+        Ok(to_c(&serde_json::to_string(&s).map_err(|e| e.to_string())?))
+    })
+}
+
+/// New site handle filled with a synthetic sample (free with cb_site_free).
+#[no_mangle]
+pub unsafe extern "C" fn cb_site_from_sample(id: *const c_char, palette_json: *const c_char) -> *mut Site {
+    guard(std::ptr::null_mut(), || {
+        let id = if id.is_null() { "" } else { CStr::from_ptr(id).to_str().unwrap_or("") };
+        let p = palette_from(palette_json)?;
+        let s = crate::samples::generate(id).ok_or_else(|| format!("unknown sample '{id}'"))?;
+        Ok(Box::into_raw(Box::new(s.to_site(&p))))
+    })
+}
+
 // ------------------------------------------------------------------ site
 
 #[no_mangle]
@@ -221,6 +270,23 @@ pub unsafe extern "C" fn cb_site_add_terrain_file(site: *mut Site, path: *const 
         }
         let p = CStr::from_ptr(path).to_string_lossy().to_string();
         let r = crate::raster::Raster::load(&p)?;
+        let m = r.to_mesh(step.max(1) as usize);
+        let n = (m.tris.len() / 3) as i32;
+        if design != 0 {
+            site.design_terrain.push(m)
+        } else {
+            site.terrain.push(m)
+        }
+        Ok(n)
+    })
+}
+
+/// Add terrain from an in-memory GeoTIFF / ASCII grid (browser uploads). Returns triangles added or −1.
+#[no_mangle]
+pub unsafe extern "C" fn cb_site_add_terrain_bytes(site: *mut Site, bytes: *const u8, len: i32, step: i32, design: i32) -> i32 {
+    guard(-1, || {
+        let site = site.as_mut().ok_or("site is null")?;
+        let r = crate::raster::from_bytes(s(bytes, len), "upload")?;
         let m = r.to_mesh(step.max(1) as usize);
         let n = (m.tris.len() / 3) as i32;
         if design != 0 {
@@ -447,6 +513,20 @@ pub unsafe extern "C" fn cb_instant_copy_path(r: *const InstantResult, idx: i32,
 
 // ------------------------------------------------------------------ dynamic
 
+#[cfg(target_arch = "wasm32")]
+#[link(wasm_import_module = "env")]
+extern "C" {
+    /// Provided by the JavaScript host (web worker): return 0 to cancel.
+    fn cb_host_progress(fraction: f64, time_s: f64, h_max: f64, elapsed_s: f64) -> i32;
+}
+
+fn host_progress(_p: &Progress) -> bool {
+    #[cfg(target_arch = "wasm32")]
+    return unsafe { cb_host_progress(_p.fraction, _p.time_s, _p.h_max_m, _p.elapsed_s) != 0 };
+    #[cfg(not(target_arch = "wasm32"))]
+    return true;
+}
+
 pub type ProgressCallback = Option<unsafe extern "C" fn(*const Progress, *mut c_void) -> i32>;
 
 /// Runs the dynamic model synchronously (call it from a worker thread). The callback returns 0 to cancel.
@@ -459,7 +539,7 @@ pub unsafe extern "C" fn cb_dynamic_run(g: *const Grid, sc: *const Scenario, rai
         let pr: Vec<usize> = s(probes, n_probes).iter().filter(|&&p| p >= 0).map(|&p| p as usize).collect();
         let res = run_dynamic(g, &sc, &rain, &pr, |p| match cb {
             Some(f) => f(p as *const Progress, user) != 0,
-            None => true,
+            None => host_progress(p),
         });
         Ok(Box::into_raw(Box::new(res)))
     })

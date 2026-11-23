@@ -299,7 +299,7 @@ pub fn raster_polyline(g: &Grid, l: &Polyline, mut visit: impl FnMut(usize)) {
 // ---------------------------------------------------------------- builder
 
 pub fn build_grid(site: &Site, palette: Palette, s: &GridSettings) -> Result<Grid, String> {
-    let t0 = std::time::Instant::now();
+    let t0 = crate::sys::Clock::now();
     if site.terrain.is_empty() && site.design_terrain.is_empty() {
         return Err("Select a terrain first.".into());
     }
@@ -456,7 +456,7 @@ pub fn build_grid(site: &Site, palette: Palette, s: &GridSettings) -> Result<Gri
             g.z[k] = if h >= 0.0 { g.z[k].max(g.terrain_z[k] + h) } else { g.terrain_z[k] + h };
         }
     }
-    g.warnings.push(format!("Grid {}×{} @ {:.2} m built in {} ms.", nx, ny, dx, t0.elapsed().as_millis()));
+    g.warnings.push(format!("Grid {}×{} @ {:.2} m built in {} ms.", nx, ny, dx, t0.ms() as i64));
     Ok(g)
 }
 

@@ -74,3 +74,32 @@ namespace Cloudburst.UI.Infrastructure
         public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture) => !(value is bool b && b);
     }
 }
+
+namespace Cloudburst.UI.Infrastructure
+{
+    /// <summary>All bound booleans true → Visible.</summary>
+    public sealed class AllTrue : IMultiValueConverter
+    {
+        public static readonly AllTrue Instance = new AllTrue();
+        public object Convert(object[] values, Type targetType, object parameter, CultureInfo culture)
+        {
+            bool all = values != null && values.Length > 0;
+            if (values != null) foreach (var v in values) if (!(v is bool b && b)) all = false;
+            return all ? Visibility.Visible : Visibility.Collapsed;
+        }
+        public object[] ConvertBack(object value, Type[] targetTypes, object parameter, CultureInfo culture) => null;
+    }
+
+    /// <summary>[IsOptional, HasItems] → Visible when optional and nothing picked yet.</summary>
+    public sealed class OptionalChip : IMultiValueConverter
+    {
+        public static readonly OptionalChip Instance = new OptionalChip();
+        public object Convert(object[] values, Type targetType, object parameter, CultureInfo culture)
+        {
+            bool opt = values?.Length > 0 && values[0] is bool a && a;
+            bool has = values?.Length > 1 && values[1] is bool b && b;
+            return opt && !has ? Visibility.Visible : Visibility.Collapsed;
+        }
+        public object[] ConvertBack(object value, Type[] targetTypes, object parameter, CultureInfo culture) => null;
+    }
+}

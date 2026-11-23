@@ -108,3 +108,24 @@ namespace Cloudburst.Net.Tests
         }
     }
 }
+
+namespace Cloudburst.Net.Tests
+{
+    public class SampleTests
+    {
+        [Fact]
+        public void AllSyntheticSamplesLoadAndRun()
+        {
+            var list = Cloudburst.Demo.SampleLibrary.List();
+            Assert.True(list.Count >= 11);
+            foreach (var s in list.Where(x => !x.IsReal))
+            {
+                var site = Cloudburst.Demo.SampleLibrary.Load(s.Id);
+                using var g = Engine.BuildGrid(site, MaterialPalette.LoadDefault());
+                var r = Engine.RunInstant(g, Scenario.Default);
+                Assert.True(r.Stats.BluespotCount > 0, s.Id);
+            }
+            Assert.Throws<System.IO.FileNotFoundException>(() => Cloudburst.Demo.SampleLibrary.Load("dk_taasinge"));
+        }
+    }
+}

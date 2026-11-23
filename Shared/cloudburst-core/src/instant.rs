@@ -147,7 +147,7 @@ pub fn priority_flood(g: &Grid) -> Flood {
 }
 
 pub fn run_instant(g: &Grid, sc: &Scenario) -> InstantResult {
-    let t0 = std::time::Instant::now();
+    let t0 = crate::sys::Clock::now();
     let (nx, ny, n) = (g.nx, g.ny, g.len());
     let a = g.cell_area();
     let hy = derive(g, sc);
@@ -388,7 +388,7 @@ pub fn run_instant(g: &Grid, sc: &Scenario) -> InstantResult {
 
     // --- flow paths
     let paths = trace_paths(g, &fl, &label, &accum, &main_recv, &depth);
-    stats.elapsed_ms = t0.elapsed().as_secs_f64() * 1000.0;
+    stats.elapsed_ms = t0.ms();
     InstantResult { depth, accumulation: accum, label, bluespots, paths, stats }
 }
 

@@ -188,6 +188,8 @@ namespace Cloudburst.Native
         [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)] public static extern int cb_material_guess([MarshalAs(UnmanagedType.LPUTF8Str)] string paletteJson, [MarshalAs(UnmanagedType.LPUTF8Str)] string text);
         [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)] public static extern void cb_scenario_default(out Scenario s);
 
+        [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)] public static extern IntPtr cb_samples_json();
+        [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)] public static extern IntPtr cb_sample_json([MarshalAs(UnmanagedType.LPUTF8Str)] string id);
         [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)] public static extern IntPtr cb_site_new();
         [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)] public static extern void cb_site_free(IntPtr site);
         [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)] public static extern void cb_site_add_terrain(IntPtr site, double[] v, int nv, int[] t, int nt, int design);

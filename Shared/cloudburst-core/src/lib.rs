@@ -21,6 +21,8 @@ pub mod palette;
 pub mod rain;
 pub mod raster;
 pub mod retention;
+pub mod samples;
+pub mod sys;
 
 pub use dynamic::{run_dynamic, DynamicResult, MassBalance};
 pub use grid::{build_grid, Grid, GridSettings, Site};
