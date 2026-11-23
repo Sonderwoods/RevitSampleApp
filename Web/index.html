@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Cloudburst – flood screening</title>
+  <meta name="description" content="Instant bluespot screening and dynamic 2D cloudburst simulation in the browser.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M12 2.7c3.6 4.3 6.5 8 6.5 11.3a6.5 6.5 0 0 1-13 0C5.5 10.7 8.4 7 12 2.7z' fill='%234FA8E0'/%3E%3C/svg%3E">
+  <!-- Optional web font (falls back to system UI fonts offline) -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fontsource-variable/inter@5.0.16/index.css" crossorigin="anonymous">
+  <link rel="stylesheet" href="styles.css">
+  <!-- three.js is only used by the optional 3D view and is loaded lazily -->
+  <script type="importmap">
+  { "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  } }
+  </script>
+</head>
+<body>
+  <header class="topbar">
+    <button class="brand" id="brand" title="All samples">
+      <span class="logo"><svg width="22" height="22" viewBox="0 0 24 24"><defs><linearGradient id="lg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#7cc4f2"/><stop offset="1" stop-color="#1f78c8"/></linearGradient></defs><path d="M12 2.7c3.6 4.3 6.5 8 6.5 11.3a6.5 6.5 0 0 1-13 0C5.5 10.7 8.4 7 12 2.7z" fill="url(#lg)"/><path d="M8.6 14.6c.4 1.6 1.7 2.6 3.3 2.8" stroke="#fff" stroke-opacity=".75" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg></span>
+      <span class="brand-name">Cloudburst</span>
+      <span class="brand-sub">Flood screening</span>
+    </button>
+    <nav class="crumbs" id="crumbs"></nav>
+    <div class="top-right">
+      <span class="chip subtle" id="engineChip"><span class="dot"></span>Loading engine…</span>
+    </div>
+  </header>
+
+  <main id="gallery" class="screen gallery">
+    <section class="hero">
+      <div class="hero-text">
+        <div class="eyebrow">Cloudburst screening · Web</div>
+        <h1>Where does the water go?</h1>
+        <p>Bluespot screening that updates as you move a slider, and a 2D dynamic simulation, running locally in your
+          browser on the same Rust engine as the Revit and Rhino plug-ins.</p>
+      </div>
+      <div class="hero-stats" id="heroStats"></div>
+    </section>
+    <section class="gal-section">
+      <div class="sec-head"><h2>Sample sites</h2><span class="muted">Synthetic sites with terrain, buildings and surfaces built in</span></div>
+      <div class="cards" id="cardsSynthetic"></div>
+    </section>
+    <section class="gal-section">
+      <div class="sec-head"><h2>Real Danish sites</h2><span class="muted">Terrain from DHM/Terræn (Dataforsyningen). Drop the GeoTIFF to start.</span></div>
+      <div class="cards" id="cardsReal"></div>
+    </section>
+    <footer class="gal-foot">SCREENING MODEL, not for compliance. Results are indicative and depend on terrain resolution and surface assumptions.</footer>
+  </main>
+
+  <main id="workspace" class="screen workspace hidden">
+    <aside class="panel left" id="leftPanel"></aside>
+    <section class="mapwrap" id="mapwrap">
+      <canvas id="map"></canvas>
+      <div id="view3d" class="view3d hidden"></div>
+      <div class="map-top">
+        <div class="seg glass" id="layerSeg"></div>
+        <div class="toggles glass" id="toggleBar"></div>
+      </div>
+      <div class="map-right">
+        <div class="vbar glass" id="viewSeg"></div>
+        <div class="vbar glass" id="zoomBar"></div>
+        <div class="vbar glass" id="exportBar"></div>
+      </div>
+      <div class="legend glass" id="legend"></div>
+      <div class="timebar glass hidden" id="timebar"></div>
+      <div class="caption" id="caption"></div>
+      <div class="tooltip hidden" id="tooltip"></div>
+      <div class="map-busy" id="mapBusy"><div class="pulse"></div><span>Computing…</span></div>
+      <div class="dropzone-overlay hidden" id="siteDrop"></div>
+    </section>
+    <aside class="panel right" id="rightPanel"></aside>
+  </main>
+  <input type="file" id="fileInput" accept=".tif,.tiff,.asc,.txt" hidden>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
