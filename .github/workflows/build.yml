@@ -1,0 +1,40 @@
+name: build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  engine-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Rust tests (solver validation)
+        working-directory: Shared/cloudburst-core
+        run: cargo test --release
+      - name: Build native engine (Linux, for .NET tests)
+        working-directory: Shared/cloudburst-core
+        run: cargo build --release
+      - name: .NET wrapper tests
+        run: dotnet test Shared/Cloudburst.Net.Tests -c Release
+
+  windows-plugins:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Build package (engine + Rhino + Grasshopper + Revit)
+        shell: pwsh
+        run: ./build.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cloudburst-windows
+          path: dist/

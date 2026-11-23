@@ -15,6 +15,7 @@
   <ItemGroup>
     <None Include="$(NativeDir)x86_64-pc-windows-gnu\release\cloudburst_core.dll" Condition="Exists('$(NativeDir)x86_64-pc-windows-gnu\release\cloudburst_core.dll')" Link="cloudburst_core.dll" CopyToOutputDirectory="PreserveNewest" />
     <None Include="$(NativeDir)x86_64-pc-windows-msvc\release\cloudburst_core.dll" Condition="!Exists('$(NativeDir)x86_64-pc-windows-gnu\release\cloudburst_core.dll') And Exists('$(NativeDir)x86_64-pc-windows-msvc\release\cloudburst_core.dll')" Link="cloudburst_core.dll" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NativeDir)release\cloudburst_core.dll" Condition="!Exists('$(NativeDir)x86_64-pc-windows-gnu\release\cloudburst_core.dll') And !Exists('$(NativeDir)x86_64-pc-windows-msvc\release\cloudburst_core.dll') And Exists('$(NativeDir)release\cloudburst_core.dll')" Link="cloudburst_core.dll" CopyToOutputDirectory="PreserveNewest" />
     <None Include="$(NativeDir)release\libcloudburst_core.so" Condition="Exists('$(NativeDir)release\libcloudburst_core.so')" Link="libcloudburst_core.so" CopyToOutputDirectory="PreserveNewest" />
     <None Include="$(NativeDir)release\libcloudburst_core.dylib" Condition="Exists('$(NativeDir)release\libcloudburst_core.dylib')" Link="libcloudburst_core.dylib" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>

@@ -412,7 +412,7 @@ fn face_flux(ha: f32, hb: f32, za: f32, zb: f32, na: f32, nb: f32, q0: f32, qm: 
     }
     let slope = (eb - ea) / dx;
     let num = qw - g * hf * dt * slope;
-    let den = 1.0 + g * dt * n * n * qw.abs() / hf.powf(7.0 / 3.0);
+    let den = 1.0 + g * dt * n * n * qw.abs() / (hf * hf * hf.cbrt()); // hf^(7/3)
     let mut q = num / den;
     let qmax = hf * (g * hf).sqrt(); // Froude ≤ 1
     if q > qmax {
