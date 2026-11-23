@@ -46,6 +46,8 @@ namespace Cloudburst.Model
         public MassBalance Mass { get; internal set; }
         public int[] ProbeCells { get; internal set; }
         public float[][] ProbeDepth { get; internal set; }
+        /// <summary>Probe sample times, s (engine samples every 60 s from t = 0).</summary>
+        public double[] ProbeTimes => ProbeDepth == null || ProbeDepth.Length == 0 ? Array.Empty<double>() : Enumerable.Range(0, ProbeDepth[0].Length).Select(i => i * 60.0).ToArray();
 
         internal DynamicResult(IntPtr h) { _h = h; }
         public int FrameCount => FrameTimes?.Length ?? 0;
@@ -155,7 +157,7 @@ namespace Cloudburst.Model
                                                CancellationToken cancel = default, IList<int> probeCells = null)
         {
             scenario.ClimateFactor = rain.ClimateFactor;
-            var probes = probeCells?.ToArray() ?? Array.Empty<int>();
+            var probes = probeCells?.Where(c => c >= 0 && c < grid.Count).ToArray() ?? Array.Empty<int>();
             ProgressCallback cb = (ref Progress p, IntPtr _) => { progress?.Report(p); return cancel.IsCancellationRequested ? 0 : 1; };
             IntPtr h;
             try { h = NativeMethods.cb_dynamic_run(grid.Handle, ref scenario, rain.IntensityMmH, rain.IntensityMmH.Length, rain.StepS, probes, probes.Length, cb, IntPtr.Zero); }

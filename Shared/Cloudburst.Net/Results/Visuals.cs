@@ -139,6 +139,9 @@ namespace Cloudburst.Results
         /// <summary>Classed quad mesh for a per-cell value array. Cells under the ramp's first break are skipped.
         /// The quad sits on the water surface (terrain + depth) when <paramref name="depth"/> is given.</summary>
         public static ColoredMesh BuildMesh(SiteGrid g, float[] values, ColorRamp ramp, float[] depth = null, Func<int, bool> include = null)
+            => BuildMesh(g, values, ramp, depth, include, ZOffset, SkipBuildings);
+
+        public static ColoredMesh BuildMesh(SiteGrid g, float[] values, ColorRamp ramp, float[] depth, Func<int, bool> include, double zOffset, bool skipBuildings)
         {
             var verts = new List<double>(); var quads = new List<int>(); var cols = new List<int>(); var cls = new List<int>();
             double dx = g.CellSize;
@@ -147,12 +150,12 @@ namespace Cloudburst.Results
                 {
                     int k = j * g.Nx + i;
                     if (g.Active[k] == 0 || (include != null && !include(k))) continue;
-                    if (SkipBuildings && g.Building[k] >= 0) continue;
+                    if (skipBuildings && g.Building[k] >= 0) continue;
                     int c = ramp.ClassOf(values[k]);
                     if (c < 0) continue;
                     int argb = ramp.Colors[c];
                     if (((uint)argb >> 24) == 0) continue;
-                    double z = g.Z[k] + (depth != null ? depth[k] : 0) + ZOffset;
+                    double z = g.Z[k] + (depth != null ? depth[k] : 0) + zOffset;
                     double x0 = g.X0 + i * dx, y0 = g.Y0 + j * dx;
                     int b = verts.Count / 3;
                     verts.AddRange(new[] { x0, y0, z, x0 + dx, y0, z, x0 + dx, y0 + dx, z, x0, y0 + dx, z });
@@ -256,8 +259,7 @@ namespace Cloudburst.Results
             var vals = new float[g.Count];
             var ramp = new ColorRamp("Materials", "", Enumerable.Range(0, colors.Length).Select(i => (double)i).ToArray(), colors, g.Palette.Materials.Select(m => m.Name).ToArray());
             for (int k = 0; k < g.Count; k++) vals[k] = g.Building[k] >= 0 ? float.NaN : g.Material[k];
-            var old = ZOffset; var sb = SkipBuildings; ZOffset = 0.02; SkipBuildings = false;
-            try { return BuildMesh(g, vals, ramp); } finally { ZOffset = old; SkipBuildings = sb; }
+            return BuildMesh(g, vals, ramp, null, null, 0.02, false);
         }
     }
 
