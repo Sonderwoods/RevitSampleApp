@@ -46,9 +46,17 @@ jobs:
           path: dist/
 
   desktop-windows:
+    needs: windows-plugins
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: cloudburst-windows
+          path: dist
+      - name: Bundle the Revit and Rhino plug-ins into the setup program
+        shell: pwsh
+        run: ./Desktop/stage-plugins.ps1
       - uses: dtolnay/rust-toolchain@stable
       - uses: actions/setup-node@v4
         with:

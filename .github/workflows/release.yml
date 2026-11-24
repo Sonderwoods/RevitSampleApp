@@ -49,6 +49,10 @@ jobs:
         shell: pwsh
         run: ./Rhino/pack-yak.ps1 -Version "$env:TAG"
 
+      - name: Bundle the Revit and Rhino plug-ins into the setup program
+        shell: pwsh
+        run: ./Desktop/stage-plugins.ps1
+
       - name: Built-in DHM API key for the desktop app (Web/js/config.js)
         run: python tools/inject_dhm_key.py
 
@@ -75,7 +79,8 @@ jobs:
 
             | Download | What |
             | --- | --- |
-            | `Cloudburst_*_x64_en-US.msi` / `Cloudburst_*_x64-setup.exe` | Desktop app (Windows 10/11): sample sites, live bluespots, dynamic simulation, real Danish terrain |
+            | `Cloudburst_*_x64-setup.exe` | **Everything in one installer, no administrator rights needed**: the desktop app (Windows 10/11), and it offers to install the Revit 2026 add-in and the Rhino 8 + Grasshopper plug-in when it finds those programs |
+            | `Cloudburst_*_x64_en-US.msi` | Desktop app only, for IT deployment (needs administrator rights) |
             | `cloudburst-*-win.yak` | Rhino 8 + Grasshopper as one package: drag the file into Rhino 8 and restart Rhino. Run `Cloudburst`. |
             | `Cloudburst-Rhino.zip` | Rhino 8 plug-in (.rhp) + Grasshopper components (.gha). Drag the .rhp into Rhino, run `Cloudburst`. |
             | `Cloudburst-Revit.zip` | Revit 2026 add-in. Unzip into `%AppData%\Autodesk\Revit\Addins\2026\` (the .addin file next to the `Cloudburst` folder). |
