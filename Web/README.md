@@ -67,4 +67,9 @@ The workspace's left panel is the job in six numbered steps: **Site → Rain →
 designs → Export** (`#step-site`, `#step-rain`, `#step-surfaces`, `#step-run`, `#step-compare`, `#step-export`). The map
 is in the middle, results on the right. New site sources and export actions are added through `js/hooks.js`
 (`addSiteSource`, `addExportAction`), not by editing `app.js`. Plain-language explanations of technical terms live in
-`js/terms.js`. The UX review is in [../docs/reviews/ux-review.md](../docs/reviews/ux-review.md).
+`js/terms.js`. The UX review is in [../docs/reviews/ux-review.md](../docs/reviews/ux-review.md); the visual design rules (tokens,
+components, contrast) are in [../docs/reviews/ui-review.md](../docs/reviews/ui-review.md). Screenshots: `screenshots/`
+(light and `-dark`).
+
+![Start page](screenshots/start.png)
+![Workspace](screenshots/workspace.png)

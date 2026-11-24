@@ -8,22 +8,24 @@
          ============================================================================== -->
 
     <!-- Palette -->
-    <Color x:Key="C.Bg">#0D1117</Color>
-    <Color x:Key="C.Surface">#141A22</Color>
-    <Color x:Key="C.Surface2">#19212B</Color>
-    <Color x:Key="C.Surface3">#212B37</Color>
-    <Color x:Key="C.Surface4">#2A3644</Color>
-    <Color x:Key="C.Border">#232D3A</Color>
-    <Color x:Key="C.BorderStrong">#344255</Color>
-    <Color x:Key="C.Text">#E6EDF3</Color>
-    <Color x:Key="C.TextMuted">#93A1B3</Color>
-    <Color x:Key="C.TextFaint">#5F6E80</Color>
-    <Color x:Key="C.Accent">#38BDF8</Color>
-    <Color x:Key="C.AccentStrong">#0EA5E9</Color>
-    <Color x:Key="C.AccentDeep">#2563EB</Color>
-    <Color x:Key="C.Good">#34D399</Color>
-    <Color x:Key="C.Warn">#FBBF24</Color>
-    <Color x:Key="C.Danger">#F87171</Color>
+    <!-- Colour values aligned with the web app's dark-theme tokens (Web/styles.css :root, docs/reviews/ui-review.md).
+         Values only; keys, brushes and templates unchanged. Not compiled or viewed (no Windows/.NET on the review machine). -->
+    <Color x:Key="C.Bg">#111113</Color>
+    <Color x:Key="C.Surface">#1D1D20</Color>
+    <Color x:Key="C.Surface2">#232326</Color>
+    <Color x:Key="C.Surface3">#2C2C30</Color>
+    <Color x:Key="C.Surface4">#3A3A3F</Color>
+    <Color x:Key="C.Border">#2C2C31</Color>
+    <Color x:Key="C.BorderStrong">#46464C</Color>
+    <Color x:Key="C.Text">#F5F5F7</Color>
+    <Color x:Key="C.TextMuted">#A1A1A6</Color>
+    <Color x:Key="C.TextFaint">#7C7C82</Color>
+    <Color x:Key="C.Accent">#63B3FF</Color>
+    <Color x:Key="C.AccentStrong">#0A6FD1</Color>
+    <Color x:Key="C.AccentDeep">#0862BB</Color>
+    <Color x:Key="C.Good">#4CD774</Color>
+    <Color x:Key="C.Warn">#FFB54D</Color>
+    <Color x:Key="C.Danger">#FF8078</Color>
 
     <SolidColorBrush x:Key="B.Bg" Color="{StaticResource C.Bg}"/>
     <SolidColorBrush x:Key="B.Surface" Color="{StaticResource C.Surface}"/>
@@ -37,48 +39,48 @@
     <SolidColorBrush x:Key="B.TextFaint" Color="{StaticResource C.TextFaint}"/>
     <SolidColorBrush x:Key="B.Accent" Color="{StaticResource C.Accent}"/>
     <SolidColorBrush x:Key="B.AccentStrong" Color="{StaticResource C.AccentStrong}"/>
-    <SolidColorBrush x:Key="B.AccentSoft" Color="#1F38BDF8"/>
-    <SolidColorBrush x:Key="B.AccentSoft2" Color="#1238BDF8"/>
-    <SolidColorBrush x:Key="B.AccentLine" Color="#6638BDF8"/>
+    <SolidColorBrush x:Key="B.AccentSoft" Color="#26409CFF"/>
+    <SolidColorBrush x:Key="B.AccentSoft2" Color="#14409CFF"/>
+    <SolidColorBrush x:Key="B.AccentLine" Color="#6663B3FF"/>
     <SolidColorBrush x:Key="B.Good" Color="{StaticResource C.Good}"/>
-    <SolidColorBrush x:Key="B.GoodSoft" Color="#1A34D399"/>
+    <SolidColorBrush x:Key="B.GoodSoft" Color="#2130D158"/>
     <SolidColorBrush x:Key="B.Warn" Color="{StaticResource C.Warn}"/>
-    <SolidColorBrush x:Key="B.WarnSoft" Color="#1AFBBF24"/>
+    <SolidColorBrush x:Key="B.WarnSoft" Color="#24FF9F0A"/>
     <SolidColorBrush x:Key="B.Danger" Color="{StaticResource C.Danger}"/>
-    <SolidColorBrush x:Key="B.DangerSoft" Color="#1FF87171"/>
-    <SolidColorBrush x:Key="B.DangerLine" Color="#66F87171"/>
+    <SolidColorBrush x:Key="B.DangerSoft" Color="#21FF6961"/>
+    <SolidColorBrush x:Key="B.DangerLine" Color="#66FF8078"/>
     <SolidColorBrush x:Key="B.White" Color="#FFFFFF"/>
-    <SolidColorBrush x:Key="B.Thumb" Color="#3A4757"/>
-    <SolidColorBrush x:Key="B.ThumbHover" Color="#506074"/>
+    <SolidColorBrush x:Key="B.Thumb" Color="#4A4A50"/>
+    <SolidColorBrush x:Key="B.ThumbHover" Color="#5E5E64"/>
 
     <LinearGradientBrush x:Key="B.AccentGradient" StartPoint="0,0" EndPoint="1,1">
-        <GradientStop Color="#22C3EE" Offset="0"/>
-        <GradientStop Color="#2B7BEF" Offset="1"/>
+        <GradientStop Color="#0A6FD1" Offset="0"/>
+        <GradientStop Color="#0A6FD1" Offset="1"/>
     </LinearGradientBrush>
     <LinearGradientBrush x:Key="B.AccentGradientHover" StartPoint="0,0" EndPoint="1,1">
-        <GradientStop Color="#45D0F2" Offset="0"/>
-        <GradientStop Color="#4A8FF5" Offset="1"/>
+        <GradientStop Color="#0862BB" Offset="0"/>
+        <GradientStop Color="#0862BB" Offset="1"/>
     </LinearGradientBrush>
     <LinearGradientBrush x:Key="B.AccentGradientPressed" StartPoint="0,0" EndPoint="1,1">
-        <GradientStop Color="#139FC4" Offset="0"/>
-        <GradientStop Color="#1F5FC7" Offset="1"/>
+        <GradientStop Color="#07559F" Offset="0"/>
+        <GradientStop Color="#07559F" Offset="1"/>
     </LinearGradientBrush>
     <LinearGradientBrush x:Key="B.ProgressGradient" StartPoint="0,0" EndPoint="1,0">
-        <GradientStop Color="#22D3EE" Offset="0"/>
-        <GradientStop Color="#3B82F6" Offset="1"/>
+        <GradientStop Color="#0A6FD1" Offset="0"/>
+        <GradientStop Color="#0A6FD1" Offset="1"/>
     </LinearGradientBrush>
     <LinearGradientBrush x:Key="B.ProgressSweep" StartPoint="0,0" EndPoint="1,0">
-        <GradientStop Color="#0038BDF8" Offset="0"/>
-        <GradientStop Color="#FF38BDF8" Offset="0.5"/>
-        <GradientStop Color="#0038BDF8" Offset="1"/>
+        <GradientStop Color="#0063B3FF" Offset="0"/>
+        <GradientStop Color="#9963B3FF" Offset="0.5"/>
+        <GradientStop Color="#0063B3FF" Offset="1"/>
     </LinearGradientBrush>
     <LinearGradientBrush x:Key="B.HeaderGradient" StartPoint="0,0" EndPoint="1,1">
-        <GradientStop Color="#122033" Offset="0"/>
-        <GradientStop Color="#0D1117" Offset="0.75"/>
+        <GradientStop Color="#1A1A1D" Offset="0"/>
+        <GradientStop Color="#111113" Offset="0.75"/>
     </LinearGradientBrush>
     <LinearGradientBrush x:Key="B.HeroGradient" StartPoint="0,0" EndPoint="1,1">
-        <GradientStop Color="#1A0EA5E9" Offset="0"/>
-        <GradientStop Color="#0A2563EB" Offset="1"/>
+        <GradientStop Color="#1A0A6FD1" Offset="0"/>
+        <GradientStop Color="#0A0A6FD1" Offset="1"/>
     </LinearGradientBrush>
 
     <!-- Type -->
