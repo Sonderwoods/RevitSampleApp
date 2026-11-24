@@ -5,8 +5,8 @@ WebView window. DHM terrain is downloaded by Rust code in the app (`src-tauri/sr
 there are no CORS limits and no Python or local server is needed.
 
 * **Installers**: GitHub Actions → `build` workflow → artifact **cloudburst-desktop-windows** (`.msi` and NSIS setup `.exe`).
-  The setup `.exe` is per-user (no administrator rights) and also offers to install the Revit 2026 add-in and the
-  Rhino 8 + Grasshopper package when those programs are found: `stage-plugins.ps1` copies them into
+  The setup `.exe` is per-user (no administrator rights) and also installs the Revit 2026 add-in and the
+  Rhino 8 + Grasshopper package (one page with a tick box per program, ticked when it is found): `stage-plugins.ps1` copies them into
   `src-tauri/plugins/` before the build and `src-tauri/installer-hooks.nsh` installs them. The `.msi` installs the
   desktop app only and needs administrator rights.
 * **Portable exe** (cross-compiled on Linux): `./build.sh` → `dist/Desktop/Cloudburst.exe`.
