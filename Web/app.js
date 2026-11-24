@@ -9,6 +9,8 @@ import { openDhmPicker } from './js/dhm.js';
 import { addSiteSource, addExportAction, siteSources, exportActions, hooks } from './js/hooks.js';
 import { help, term, TERMS, installTips } from './js/terms.js';
 import { reportOptionMeta } from './js/report.js'; // [report-hook] registers the PDF report export action (see js/report.js)
+import { prepareSiteDesc } from './js/sources/registry.js'; // [map-sources hook] terrain decode/reproject/aggregate
+import './js/sources/ui.js'; // [map-sources hook] registers the extra terrain sources through js/hooks.js
 
 // ------------------------------------------------------------------------------------------------ constants
 const LOCATIONS = {
@@ -322,7 +324,15 @@ async function loadGrid({ refit = true, cellSizes = null } = {}) {
   setBusy(true, 'Building grid…');
   let grid = null, lastErr = null;
   const site = S.site; const old = S.grid;
-  for (const cellSize of cellSizes || (S.site.kind === 'synthetic' ? [1] : [1, 2, 4, 8])) {
+  // [map-sources hook] begin – see js/sources/registry.js prepareSiteDesc and docs/map-sources.md
+  if (S.siteDesc && S.siteDesc.terrainBytes && !S.siteDesc.prepared) {
+    try { S.siteDesc = await prepareSiteDesc(S.siteDesc, S.site.info); } catch (e) { lastErr = e; S.siteDesc = { ...S.siteDesc, prepared: { failed: true, warnings: [`${e.message} – trying the engine's own reader.`] } }; }
+    if (S.site !== site) return;
+    if (!cellSizes) for (const w of (S.siteDesc.prepared && S.siteDesc.prepared.warnings) || []) toast(w);
+  }
+  const preparedCell = S.siteDesc && S.siteDesc.prepared && S.siteDesc.prepared.cellSize;
+  // [map-sources hook] end
+  for (const cellSize of cellSizes || (S.site.kind === 'synthetic' ? [1] : preparedCell ? [preparedCell] : [1, 2, 4, 8])) {
     try {
       grid = await S.cb.buildGrid(S.siteDesc, gridSettings(cellSize));
       if (grid.nx * grid.ny > 900000 && cellSize < 8) { S.cb.freeGrid(grid); grid = null; continue; }
@@ -339,7 +349,8 @@ async function loadGrid({ refit = true, cellSizes = null } = {}) {
   S.grid = grid;
   $('#siteDrop').classList.add('hidden');
   const base = baseCanvas(grid, S.info.palette);
-  S.scene = { grid, base, buildingsVec: S.sampleJson ? S.sampleJson.buildings : null, buildingsRaster: S.sampleJson ? null : buildingsCanvas(grid) };
+  const vecB = S.sampleJson ? S.sampleJson.buildings : (S.siteDesc.buildings && S.siteDesc.buildings.length ? S.siteDesc.buildings : null); // [map-sources hook] OSM footprints
+  S.scene = { grid, base, buildingsVec: vecB, buildingsRaster: vecB ? null : buildingsCanvas(grid) };
   map.setScenes([S.scene]); if (refit) map.fit();
   if (S.view3d && S.v3) S.v3.setSite(grid, base, S.scene.buildingsVec);
   renderLeft(); renderRight(); renderMapChrome();
@@ -421,7 +432,7 @@ async function openFetchedTerrain({ bytes, info }) {
 }
 
 async function onTerrainFile(file) {
-  if (!/\.(tif|tiff|asc|txt)$/i.test(file.name)) { toast(`“${file.name}” is not a terrain file. Use a GeoTIFF (.tif) or ESRI ASCII (.asc) elevation file.`, 'error'); return; }
+  if (!/\.(tif|tiff|asc|txt|xyz|csv)$/i.test(file.name)) /* [map-sources hook] +xyz */ { toast(`“${file.name}” is not a terrain file. Use a GeoTIFF (.tif) or ESRI ASCII (.asc) elevation file.`, 'error'); return; }
   const bytes = new Uint8Array(await file.arrayBuffer());
   if (S.site && S.site.kind === 'real' && !S.grid) {
     S.siteDesc = { terrainBytes: bytes };

@@ -95,7 +95,7 @@ export class CloudburstEngine {
   // ---------- grid
   /**
    * Build a grid. `site` is either {sample: id} or a plain site description:
-   * { terrainBytes?: Uint8Array (GeoTIFF/ASC), terrainStep?, buildings?: [{xs,ys,height}], surfaces?: [{material, xs, ys}], kerbs?: [{xs,ys,height}] }
+   * { terrainBytes?: Uint8Array (GeoTIFF/ASC), terrainStep?, buildings?: [{xs,ys,height}], surfaces?: [{material, xs, ys}], kerbs?: [{xs,ys,height}], bridgeCuts?: [{xs,ys}] }
    */
   buildGrid(site, settings = {}) {
     const st = { cellSize: 1, buildingMinHeight: 5, maxCells: 1_500_000, defaultSoil: 6, defaultMaterial: -1, useRoofHeight: 0, ...settings };
@@ -119,6 +119,10 @@ export class CloudburstEngine {
       for (const s of site.surfaces || []) {
         const [px, nx] = this._f64(s.xs); const [py, ny] = this._f64(s.ys); frees.push([px, nx], [py, ny]);
         this.x.cb_site_add_region_polygon(siteH, px, py, s.xs.length, matIndex(s.material), 0, 0, -1);
+      }
+      for (const c of site.bridgeCuts || []) { // IN-4 bridge cut-outs (e.g. from OpenStreetMap, js/sources/osm.js)
+        const [px, nx] = this._f64(c.xs); const [py, ny] = this._f64(c.ys); frees.push([px, nx], [py, ny]);
+        this.x.cb_site_add_bridge_cut(siteH, px, py, c.xs.length);
       }
       for (const k of site.kerbs || []) {
         const [px, nx] = this._f64(k.xs); const [py, ny] = this._f64(k.ys); frees.push([px, nx], [py, ny]);

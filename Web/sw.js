@@ -5,6 +5,8 @@ const CACHE = 'cloudburst-v1';
 const SHELL = ['./', 'index.html', 'app.js', 'styles.css', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png',
   'engine/cloudburst-wasm.js', 'engine/engine-worker.js', 'engine/engine-client.js', 'engine/cloudburst_core.wasm',
   'js/util.js', 'js/colors.js', 'js/raster.js', 'js/mapview.js', 'js/view3d.js', 'js/dhm.js', 'js/hooks.js', 'js/terms.js',
+  'js/sources/registry.js', 'js/sources/tiff.js', 'js/sources/textgrid.js', 'js/sources/proj.js', 'js/sources/gridops.js', 'js/sources/dhm.js',
+  'js/sources/terrarium.js', 'js/sources/copernicus.js', 'js/sources/osm.js', 'js/sources/ui.js',
   // PDF report (js/report.js): precached so "Export report" works offline
   'js/report.js', 'js/report-model.js', 'js/report-pdf.js', 'js/report-maps.js', 'js/report-i18n.js', 'report.css', 'vendor/jspdf/jspdf.umd.min.js'];
 
@@ -18,7 +20,7 @@ self.addEventListener('fetch', (e) => {
   const req = e.request;
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
-  if (url.pathname.includes('/proxy/') || /tile\.openstreetmap|nominatim|datafordeler|dataforsyningen/.test(url.host)) return;
+  if (url.pathname.includes('/proxy/') || /tile\.openstreetmap|nominatim|datafordeler|dataforsyningen|overpass|amazonaws/.test(url.host)) return;
   if (url.origin === location.origin) {
     e.respondWith(fetch(req).then((res) => {
       if (res.ok) { const copy = res.clone(); caches.open(CACHE).then((c) => c.put(req, copy)); }

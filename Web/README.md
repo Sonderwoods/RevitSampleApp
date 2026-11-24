@@ -38,8 +38,28 @@ On the start page, under **Your own site**, click **Find a place in Denmark**:
 2. Paste a **Datafordeler API key** or a **Dataforsyningen token**. If you tick "Remember", it is kept only in your browser.
 3. Click **Download terrain & open**. DHM/Terræn is downloaded as a GeoTIFF and opened as a new site.
 
+The same dialog has a **Terrain source** list. Outside Denmark (start page: **Find a place outside Denmark**) it
+offers keyless global elevation: **AWS Terrain Tiles** (works anywhere, also on GitHub Pages) and **Copernicus DEM
+GLO-30** (needs `serve.py` or the desktop app). Both are 10–30 m and the dialog marks them *not suitable for site
+screening*: use them for an overview, and upload a national LiDAR terrain for real work. Tick **Add buildings & land
+cover from OpenStreetMap** to get building footprints, surface materials from land use / roads, and bridge cut-outs.
+Sources, licences and limits: [../docs/map-sources.md](../docs/map-sources.md).
+
 Real-site cards (Tåsinge Plads, …) open a page with a **Download terrain…** button and a drop zone for a terrain
 file. The key is never written to disk by the server and is not logged.
+
+## Terrain files
+
+Drop or choose a **GeoTIFF** (any common variant: tiled or striped, LZW/Deflate/PackBits, int16/float32/float64,
+BigTIFF, Cloud Optimized), an **Esri ASCII grid** (`.asc`) or a gridded **XYZ** file (`.xyz`, `.csv`, `.txt`). The
+terrain is decoded in the browser, reprojected when it is in lat/lon or Web Mercator, and averaged onto the 1–8 m grid
+(every source pixel counts; the old path sampled one pixel per cell). Nothing is uploaded anywhere. LAS/LAZ point clouds
+must be gridded to GeoTIFF first.
+
+`serve.py` also relays Copernicus DEM tiles (`/proxy/copernicus/…`, with HTTP range requests) and the Overpass API
+(`/proxy/overpass`), to fixed upstreams only.
+
+Tests for the import modules: `node --test Web/tests/*.test.mjs` (fixtures: `python3 tools/make_terrain_fixtures.py`).
 
 ## How the app is laid out (for contributors)
 
