@@ -101,6 +101,9 @@ pub struct Grid {
     pub active: Vec<u8>,
     pub building_drainage: Vec<RoofDrainage>,
     pub building_roof_material: Vec<Option<usize>>,
+    /// Optional cap on cumulative infiltration per cell, mm (negative = no cap). Empty = no caps. Used for high
+    /// groundwater (PRD: infiltration stops after the first few millimetres). Set with `set_infiltration_cap`.
+    pub infiltration_cap_mm: Vec<f32>,
     pub palette: Palette,
     pub warnings: Vec<String>,
 }
@@ -125,6 +128,7 @@ impl Grid {
             active: vec![1; n],
             building_drainage: vec![],
             building_roof_material: vec![],
+            infiltration_cap_mm: vec![],
             palette,
             warnings: vec![],
         }
@@ -173,6 +177,20 @@ impl Grid {
     }
 
     /// Set the material for every cell (tests).
+    /// Cap cumulative infiltration (mm) per cell; negative or NaN = no cap. `caps.len()` must equal the cell count,
+    /// an empty slice clears all caps. Returns false on a length mismatch.
+    pub fn set_infiltration_cap(&mut self, caps_mm: &[f32]) -> bool {
+        if caps_mm.is_empty() {
+            self.infiltration_cap_mm.clear();
+            return true;
+        }
+        if caps_mm.len() != self.len() {
+            return false;
+        }
+        self.infiltration_cap_mm = caps_mm.iter().map(|&v| if v.is_nan() || v < 0.0 { -1.0 } else { v }).collect();
+        true
+    }
+
     pub fn set_material_all(&mut self, id: &str) {
         let m = self.palette.index_of(id).expect("material") as u16;
         self.material.iter_mut().for_each(|v| *v = m);

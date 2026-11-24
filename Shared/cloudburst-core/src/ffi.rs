@@ -4,7 +4,7 @@
 
 #![allow(clippy::missing_safety_doc)]
 
-use crate::dynamic::{run_dynamic, DynamicResult, MassBalance, Progress};
+use crate::dynamic::{run_dynamic, DynamicResult, MassBalance, PermeabilityStats, Progress};
 use crate::geometry::{Mesh, Polygon, Polyline};
 use crate::grid::{build_grid, Building, Grid, GridSettings, Region, RoofDrainage, Site, Wall};
 use crate::hydro::Scenario;
@@ -365,6 +365,21 @@ pub unsafe extern "C" fn cb_grid_build(site: *const Site, palette_json: *const c
     })
 }
 
+/// Caps cumulative infiltration per cell (mm), e.g. where groundwater is within 1 m of the surface. `caps_mm` has
+/// one value per cell (row-major, as `cb_grid_copy_z`); negative = no cap. `len` 0 clears all caps.
+/// Returns 1 on success, 0 on a null grid or a length mismatch.
+#[no_mangle]
+pub unsafe extern "C" fn cb_grid_set_infiltration_cap(g: *mut Grid, caps_mm: *const f32, len: i32) -> i32 {
+    guard(0, || {
+        let g = g.as_mut().ok_or("grid is null")?;
+        if g.set_infiltration_cap(s(caps_mm, len)) {
+            Ok(1)
+        } else {
+            Err(format!("infiltration cap: expected {} values, got {len}", g.len()))
+        }
+    })
+}
+
 #[no_mangle]
 pub unsafe extern "C" fn cb_grid_free(g: *mut Grid) {
     if !g.is_null() {
@@ -563,7 +578,20 @@ pub unsafe extern "C" fn cb_dynamic_mass(r: *const DynamicResult, out: *mut Mass
     }
 }
 
-/// which: 0 h_max, 1 v_max, 2 hazard h(v+0.5), 3 h·v, 4 t_peak (s), 5 final depth.
+/// Infiltration breakdown of a dynamic run (sub-base storage, drainage, caps). Returns 1 on success.
+#[no_mangle]
+pub unsafe extern "C" fn cb_dynamic_permeability(r: *const DynamicResult, out: *mut PermeabilityStats) -> i32 {
+    match (r.as_ref(), out.as_mut()) {
+        (Some(r), Some(o)) => {
+            *o = r.permeability;
+            1
+        }
+        _ => 0,
+    }
+}
+
+/// which: 0 h_max, 1 v_max, 2 hazard h(v+0.5), 3 h·v, 4 t_peak (s), 5 final depth,
+/// 6 cumulative infiltration (m), 7 peak sub-base fill (0..1). Unknown values return the final depth.
 #[no_mangle]
 pub unsafe extern "C" fn cb_dynamic_copy(r: *const DynamicResult, which: i32, out: *mut f32, len: i32) -> i32 {
     let Some(r) = r.as_ref() else { return 0 };
@@ -573,6 +601,8 @@ pub unsafe extern "C" fn cb_dynamic_copy(r: *const DynamicResult, which: i32, ou
         2 => &r.hazard_max,
         3 => &r.hv_max,
         4 => &r.t_peak,
+        6 => &r.infiltrated,
+        7 => &r.subbase_fill_max,
         _ => &r.h_final,
     };
     copy_out(src, out, len)

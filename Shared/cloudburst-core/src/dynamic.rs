@@ -4,6 +4,7 @@
 
 use crate::grid::Grid;
 use crate::hydro::{derive, Scenario};
+use crate::infiltration::{infiltrate, CellInf, InfState};
 use crate::rain::RainSeries;
 use crate::sys::*;
 
@@ -27,6 +28,29 @@ pub struct MassBalance {
     pub steps: i64,
     pub cancelled: i32,
     pub _pad: i32,
+}
+
+/// Breakdown of what soaked in (C layout, read with `cb_dynamic_permeability`). Added after `MassBalance`, whose
+/// layout is frozen for ABI compatibility.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct PermeabilityStats {
+    /// Water that left the surface into the ground or a sub-base, m³ (equals `MassBalance::infiltrated_m3`).
+    pub infiltrated_m3: f64,
+    /// Of that, still held in sub-base reservoirs at the end, m³.
+    pub subbase_stored_m3: f64,
+    /// Water passed from sub-bases to the subsoil, m³.
+    pub subbase_drained_m3: f64,
+    /// Total sub-base storage volume in the domain, m³.
+    pub subbase_capacity_m3: f64,
+    /// Rain held in initial-loss buckets (interception, depression, green-roof storage), m³.
+    pub initial_loss_m3: f64,
+    /// Cells with a sub-base model (permeable paving, porous asphalt, rain garden).
+    pub subbase_cells: i64,
+    /// Sub-base cells whose storage was ≥ 99 % full at some time (they then only accepted the subsoil rate).
+    pub subbase_full_cells: i64,
+    /// Cells that reached their infiltration cap (high groundwater).
+    pub capped_cells: i64,
 }
 
 #[repr(C)]
@@ -57,6 +81,11 @@ pub struct DynamicResult {
     pub probe_depth: Vec<Vec<f32>>,
     pub probe_times: Vec<f64>,
     pub mass: MassBalance,
+    /// Cumulative infiltration through the surface per cell at the end, m.
+    pub infiltrated: Vec<f32>,
+    /// Peak sub-base fill per cell, 0..1 (0 where there is no sub-base).
+    pub subbase_fill_max: Vec<f32>,
+    pub permeability: PermeabilityStats,
 }
 
 #[derive(Clone, Copy)]
@@ -77,6 +106,7 @@ struct RowAcc {
     inf: f64,
     sewer: f64,
     stored: f64,
+    drained: f64,
     hmax: f32,
 }
 
@@ -113,7 +143,9 @@ fn run_inner(g: &Grid, sc: &Scenario, rain: &RainSeries, probes: &[usize], h0: O
     let mut fac = vec![1f32; n];
     let mut ia_rem = hy.ia.clone();
     let mut sew_rem = hy.sewer_ia.clone();
-    let mut f_cum = vec![0f32; n];
+    let mut inf_state = vec![InfState::default(); n];
+    let mut fill_max = vec![0f32; n];
+    let cells: Vec<CellInf> = (0..n).map(|k| CellInf { fc: hy.fc[k], f0: hy.f0[k], store_cap: hy.store_cap[k], drain: hy.drain[k], limited: hy.limited[k] != 0, f_cap: hy.f_cap[k] }).collect();
     let mut h_max = vec![0f32; n];
     let mut v_max = vec![0f32; n];
     let mut haz_max = vec![0f32; n];
@@ -129,6 +161,7 @@ fn run_inner(g: &Grid, sc: &Scenario, rain: &RainSeries, probes: &[usize], h0: O
     let (cw, ce_, cs, cn) = (ce & 1 != 0, ce & 2 != 0, ce & 4 != 0, ce & 8 != 0);
     let depth_n = sc.depth_roughness == 1;
     let k_horton = hy.k;
+    let mut drained_total = 0f64;
     let t_end = rain.duration_s() + sc.after_rain_min.max(0.0) * 60.0;
 
     // frames budget: ≤ ~60 M floats
@@ -263,12 +296,13 @@ fn run_inner(g: &Grid, sc: &Scenario, rain: &RainSeries, probes: &[usize], h0: O
         // ---- kernel 4: depth update, sources, maxima
         let tf = (t + dt) as f32;
         let rain_m = (rain_now * dt) as f32;
-        let ptrs = (P(h.as_mut_ptr()), P(ia_rem.as_mut_ptr()), P(sew_rem.as_mut_ptr()), P(f_cum.as_mut_ptr()), P(h_max.as_mut_ptr()), P(v_max.as_mut_ptr()), P(haz_max.as_mut_ptr()), P(hv_max.as_mut_ptr()), P(t_peak.as_mut_ptr()));
-        let (qxr, qyr, hyr, act) = (&qx, &qy, &hy, &active);
+        let ekdt = (-(k_horton as f64) * dt).exp() as f32;
+        let ptrs = (P(h.as_mut_ptr()), P(ia_rem.as_mut_ptr()), P(sew_rem.as_mut_ptr()), P(inf_state.as_mut_ptr()), P(h_max.as_mut_ptr()), P(v_max.as_mut_ptr()), P(haz_max.as_mut_ptr()), P(hv_max.as_mut_ptr()), P(t_peak.as_mut_ptr()), P(fill_max.as_mut_ptr()));
+        let (qxr, qyr, hyr, act, cel) = (&qx, &qy, &hy, &active, &cells);
         let acc = (0..ny)
             .into_par_iter()
             .map(|j| {
-                let (hp, iap, swp, fp, hmp, vmp, hzp, hvp, tpp) = ptrs;
+                let (hp, iap, swp, fp, hmp, vmp, hzp, hvp, tpp, fmp) = ptrs;
                 let mut r = RowAcc::default();
                 for i in 0..nx {
                     let k = j * nx + i;
@@ -306,16 +340,24 @@ fn run_inner(g: &Grid, sc: &Scenario, rain: &RainSeries, probes: &[usize], h0: O
                             hk -= s;
                             r.sewer += s as f64;
                         }
-                        // modified Horton, driven by cumulative infiltration
-                        let fc = hyr.fc[k];
-                        if fc > 0.0 && hk > 0.0 {
-                            let f0 = hyr.f0[k];
-                            let fk = fp.at(k);
-                            let cap_rate = fc + (f0 - fc).max(0.0) * (-(k_horton * *fk / f0.max(1e-9) * 1.0)).exp();
-                            let inf = (cap_rate * dtf).min(hk);
-                            hk -= inf;
-                            *fk += inf;
-                            r.inf += inf as f64;
+                        // modified Horton driven by cumulative infiltration, sub-base + subsoil limit, F cap
+                        let ck = &cel[k];
+                        let st = fp.at(k);
+                        if (hk > 0.0 && (ck.fc > 0.0 || ck.f0 > 0.0)) || st.store > 0.0 {
+                            let o = infiltrate(hk, dtf, k_horton, ekdt, ck, st);
+                            hk -= o.infiltrated;
+                            if hk < 0.0 {
+                                hk = 0.0;
+                            }
+                            r.inf += o.infiltrated as f64;
+                            r.drained += o.drained as f64;
+                            if ck.limited && ck.store_cap > 0.0 {
+                                let fill = st.store / ck.store_cap;
+                                let fm = fmp.at(k);
+                                if fill > *fm {
+                                    *fm = fill;
+                                }
+                            }
                         }
                         *hp.at(k) = hk;
                         r.stored += hk as f64;
@@ -348,12 +390,13 @@ fn run_inner(g: &Grid, sc: &Scenario, rain: &RainSeries, probes: &[usize], h0: O
                 }
                 r
             })
-            .reduce_id(RowAcc::default, |a, b| RowAcc { rain: a.rain + b.rain, ia: a.ia + b.ia, inf: a.inf + b.inf, sewer: a.sewer + b.sewer, stored: a.stored + b.stored, hmax: a.hmax.max(b.hmax) });
+            .reduce_id(RowAcc::default, |a, b| RowAcc { rain: a.rain + b.rain, ia: a.ia + b.ia, inf: a.inf + b.inf, sewer: a.sewer + b.sewer, stored: a.stored + b.stored, drained: a.drained + b.drained, hmax: a.hmax.max(b.hmax) });
 
         mb.rain_m3 += acc.rain * a;
         mb.initial_loss_m3 += acc.ia * a;
         mb.infiltrated_m3 += acc.inf * a;
         mb.sewer_m3 += acc.sewer * a;
+        drained_total += acc.drained * a;
         mb.stored_m3 = acc.stored * a;
         hmax_prev = acc.hmax;
         t += dt;
@@ -391,7 +434,22 @@ fn run_inner(g: &Grid, sc: &Scenario, rain: &RainSeries, probes: &[usize], h0: O
     mb.initial_water_m3 = initial_m3;
     let ins = mb.rain_m3 + initial_m3;
     mb.error_fraction = if ins > 0.0 { (ins - outs) / ins } else { 0.0 };
-    DynamicResult { h_max, v_max, hazard_max: haz_max, hv_max, t_peak, h_final: h, frames, frame_times, probe_cells: probes.to_vec(), probe_depth, probe_times, mass: mb }
+    let mut perm = PermeabilityStats { infiltrated_m3: mb.infiltrated_m3, subbase_drained_m3: drained_total, initial_loss_m3: mb.initial_loss_m3, ..Default::default() };
+    for (k, c) in cells.iter().enumerate() {
+        if c.limited {
+            perm.subbase_cells += 1;
+            perm.subbase_capacity_m3 += c.store_cap as f64 * a;
+            perm.subbase_stored_m3 += inf_state[k].store as f64 * a;
+            if c.store_cap > 0.0 && fill_max[k] >= 0.99 {
+                perm.subbase_full_cells += 1;
+            }
+        }
+        if c.f_cap.is_finite() && inf_state[k].f >= c.f_cap * (1.0 - 1e-4) {
+            perm.capped_cells += 1;
+        }
+    }
+    let infiltrated = inf_state.iter().map(|s| s.f).collect();
+    DynamicResult { h_max, v_max, hazard_max: haz_max, hv_max, t_peak, h_final: h, frames, frame_times, probe_cells: probes.to_vec(), probe_depth, probe_times, mass: mb, infiltrated, subbase_fill_max: fill_max, permeability: perm }
 }
 
 /// Local-inertial face flux with de Almeida weighting, semi-implicit Manning friction and Froude limit.

@@ -146,6 +146,14 @@ pub fn priority_flood(g: &Grid) -> Flood {
     Flood { w, parent, order }
 }
 
+/// M1 effective rain depth (m) on one cell for rain depth `p`, cloudburst coefficient `c`, initial loss `ia` and sewer
+/// loss `sewer` (all m). `c` is an event coefficient on the whole depth (it already contains interception, depression
+/// storage and infiltration), so it is not applied on top of P − Ia, which counted Ia twice. Ia stays a lower bound
+/// on the loss (runoff ≤ P − Ia) and the sewer loss acts on what is left. docs/physics-permeability.md.
+pub fn effective_rain(p: f64, c: f64, ia: f64, sewer: f64) -> f64 {
+    ((p * c).min(p - ia) - sewer).max(0.0)
+}
+
 pub fn run_instant(g: &Grid, sc: &Scenario) -> InstantResult {
     let t0 = crate::sys::Clock::now();
     let (nx, ny, n) = (g.nx, g.ny, g.len());
@@ -169,8 +177,8 @@ pub fn run_instant(g: &Grid, sc: &Scenario) -> InstantResult {
         if g.active[k] == 0 {
             continue;
         }
-        let loss = hy.ia[k] as f64 + hy.sewer_ia[k] as f64 + hy.sewer_rate[k] as f64 * 4.0 * 3600.0;
-        let r = (p - loss).max(0.0) * hy.c_cb[k] as f64;
+        let sewer = hy.sewer_ia[k] as f64 + hy.sewer_rate[k] as f64 * 4.0 * 3600.0;
+        let r = effective_rain(p, hy.c_cb[k] as f64, hy.ia[k] as f64, sewer);
         runoff[k] = r * a;
         stats.rain_volume_m3 += p * a;
         stats.effective_volume_m3 += r * a;
