@@ -259,6 +259,8 @@ function kvTable(L, rows, opts = {}) {
   L.table([{ title: '', w: opts.kw ?? 58 }, { title: '' }], rows.map((r) => [cell(r[0], { color: C.muted }), cell(r[1])]), { header: false, zebra: false, size: opts.size ?? 8.5, ...opts });
 }
 
+/** Saved options are named "Option B: …" by the app; drop that prefix where the report prints its own letter. */
+const bareName = (n) => String(n || '').replace(/^Option [A-Z]:\s*/, '');
 function presetLabel(r, t) { return r ? (t('presetNames')[r.presetId] || r.presetName) : t('notGiven'); }
 function sewerLabel(s, t) { return s == null ? t('notGiven') : [t('sewerNone'), t('sewerCombined'), t('sewerSeparate')][s.mode] ?? `mode ${s.mode}`; }
 function moistLabel(m, t) { return m == null ? t('notGiven') : [t('moistDry'), t('moistMoist'), t('moistWet')][m.mode] ?? `${m.mode}`; }
@@ -268,20 +270,64 @@ function designText(o, t) {
   return d.length ? d.map((x) => `${x.from || t('groundTo')} -> ${x.to}`).join('; ') : t('designAsDrawn');
 }
 
+/** Terrain source name in the report language (uploaded files get a translated prefix). */
+function sourceLabel(src, t) {
+  if (!src) return null;
+  if (src.id === 'upload') return src.fileName ? t('uploadedFile', { f: src.fileName }) : t('uploadedFileNoName');
+  return src.name;
+}
+/** Translated suitability {label, message} from the model's level + native resolution. */
+function suitText(sv, t, nf) {
+  if (!sv) return null;
+  const res = sv.nativeResM != null ? nf.smart(sv.nativeResM) : null;
+  const msgKey = sv.level === 'fair' && res == null ? 'fairUnknown' : sv.level;
+  let msg = (t('suitMsgs')[msgKey] || sv.message || '').replace('{res}', res ?? '?');
+  if (sv.surfaceModel) msg += ` ${t('suitDsm')}`;
+  return { label: t('suitLabels')[sv.level] || sv.label, message: msg };
+}
+const SUIT_COLOR = { good: C.good, fair: C.text, poor: C.warnText, unsuitable: C.bad };
+
+/** Prominent box when an option's terrain is too coarse for site screening (cover page). */
+function terrainWarningBoxes(L, ctx, model, opts = {}) {
+  const { t, nf } = ctx;
+  for (const w of model.terrainWarnings || []) {
+    const o = model.options.find((x) => x.letter === w.option); if (!o) continue;
+    const st = suitText(o.site.suitability, t, nf);
+    const vars = { opt: model.options.length > 1 ? t('optionLetter', { l: o.letter }) : (o.site.name || t('siteName')), src: sourceLabel(o.site.source, t) || t('notGiven'), res: w.nativeResM != null ? nf.smart(w.nativeResM) : '?', msg: st ? st.message : '' };
+    const bad = w.level === 'unsuitable';
+    L.box(t(bad ? 'coarseTitle' : 'coarsePoorTitle'), t(bad ? 'coarseBody' : 'coarsePoorBody', vars),
+      bad ? { bg: [253, 235, 236], line: C.bad, color: [120, 10, 25], ...opts } : opts);
+  }
+}
+
 function siteSection(L, ctx, o, size = 8.5) {
-  const { t, nf, f } = ctx; const s = o.site; const g = o.inputs.grid;
+  const { t, nf, f } = ctx; const s = o.site; const g = o.inputs.grid; const src = s.source;
   L.h2(t('secSite'));
   const kind = { synthetic: t('kindSynthetic'), real: t('kindReal'), custom: t('kindCustom') }[s.kind];
-  const src = s.terrain === 'synthetic' ? t('synthTerrain') : s.terrain === 'dhm' ? `${s.description || 'DHM/Terræn'}${s.dhmFile ? ` (${s.dhmFile})` : ''}` : s.description;
-  const rows = [[t('siteName'), s.name || t('notGiven')], [t('siteKind'), kind], [t('terrainSource'), src]];
-  if (s.terrain !== 'synthetic') rows.push([t('terrainDate'), t('terrainDateUnknown')]);
-  if (s.terrain === 'dhm') rows.push([t('attribution'), t('dhmAttribution')]);
-  rows.push([t('crs'), s.crs || t('crsLocal')]);
+  const srcText = s.terrain === 'synthetic' ? t('synthTerrain') : sourceLabel(src, t) || (s.terrain === 'dhm' ? `${s.description || 'DHM/Terræn'}${s.dhmFile ? ` (${s.dhmFile})` : ''}` : s.description);
+  const rows = [[t('siteName'), s.name || t('notGiven')], [t('siteKind'), kind], [t('terrainSource'), srcText]];
+  if (s.terrain !== 'synthetic') {
+    const date = ((ctx.project && ctx.project.terrainDate) || '').trim();
+    rows.push([t('terrainDate'), date || { text: t('terrainDateUnknown'), color: C.warnText }]);
+    if (src) {
+      rows.push([t('nativeRes'), src.nativeResM != null ? `${nf.smart(src.nativeResM)} m` : t('nativeResUnknown')]);
+      const st = suitText(s.suitability, t, nf);
+      if (st) rows.push([t('suitability'), { text: `${st.label}. ${st.message}`, color: SUIT_COLOR[s.suitability.level] || C.text, bold: s.suitability.level === 'unsuitable' || s.suitability.level === 'poor' }]);
+      if (src.method) rows.push([t('aggMethod'), t('aggMethods')[/^reproject/.test(src.method) ? 'reproject' : src.method] || src.method]);
+      if (src.verticalDatum) rows.push([t('vertDatum'), src.verticalDatum]);
+      rows.push([t('osmContext'), src.osm ? t('osmVal', { b: nf.fixed(src.osm.buildings || 0), s: nf.fixed(src.osm.surfaces || 0), c: nf.fixed(src.osm.bridges || 0) }) : t('osmNone')]);
+    }
+  }
+  const attr = [...((src && src.attribution) || [])];
+  if (s.terrain === 'dhm' && !attr.some((a) => /Klimadatastyrelsen|SDFI/i.test(a))) attr.unshift(t('dhmAttribution'));
+  if (attr.length) rows.push([t('attribution'), attr.join(' · ')]);
+  rows.push([t('crs'), s.crs === 'none' ? t('crsNone') : s.crs || t('crsLocal')]);
   rows.push([t('extent'), `${nf.fixed(g.widthM)} × ${nf.fixed(g.heightM)} m = ${f.withUnit(o.surfaces.totalAreaM2, 'm2')} (${nf.fixed(o.surfaces.totalAreaM2 / 10000, 2)} ha)`]);
   rows.push([t('origin'), `E ${nf.fixed(g.x0, 1)}, N ${nf.fixed(g.y0, 1)}`]);
   rows.push([t('cellSize'), `${nf.fixed(g.cellSizeM, 2)} m · ${t('cells')} ${nf.fixed(g.cells)} (${g.nx} × ${g.ny})`]);
-  if (s.bbox) rows.push(['BBOX (EPSG:25832)', s.bbox.map((v) => nf.fixed(v)).join(', ')]);
+  if (s.bbox) rows.push([`BBOX (${(s.crs && s.crs !== 'none' ? s.crs : 'EPSG:25832').split(' ')[0]})`, s.bbox.map((v) => nf.fixed(v)).join(', ')]);
   if (g.warnings && g.warnings.length) rows.push([t('gridWarnings'), g.warnings.join(' / ')]);
+  if (src && src.warnings && src.warnings.length) rows.push([t('terrainWarnings'), src.warnings.join(' / ')]);
   kvTable(L, rows, { size, padY: size < 8.5 ? 1.1 : 1.4 });
 }
 
@@ -325,15 +371,26 @@ function rainSection(L, ctx, o) {
   if (r) hyetograph(L, ctx, r);
 }
 
+/** The parameter cells of one material row (C, n, infiltration, Ia, sub-base), shared by the single and comparison tables. */
+function materialParamCells(m, t, nf) {
+  return [nf.fixed(m.cNormal ?? NaN, 2), `${nf.fixed(m.cCbSand ?? NaN, 2)} / ${nf.fixed(m.cCbClay ?? NaN, 2)}`, nf.fixed(m.manningN ?? NaN, 3),
+    m.useSoilTable ? t('jbTable', { c: t(m.compacted === false ? 'jbLoose' : 'jbCompacted') }) : `${nf.smart(m.fSandMmH)} / ${nf.smart(m.fClayMmH)}`, nf.smart(m.iaMm),
+    m.subsoilLimited ? t('subbaseCell', { mm: nf.fixed(m.storageMm || 0) }) : m.storageMm > 0 ? nf.fixed(m.storageMm) : '–'];
+}
+const PARAM_COLS = (t) => [{ title: t('thCNormal'), w: 12, align: 'r' }, { title: t('thCCb'), w: 21, align: 'r' }, { title: t('thManning'), w: 13, align: 'r' },
+  { title: t('thInfil'), w: 29, align: 'r' }, { title: t('thIa'), w: 14, align: 'r' }, { title: t('thSubbase'), w: 17, align: 'r' }];
+function materialNotes(L, t, rows) {
+  if (rows.some((m) => m.subsoilLimited)) L.para(t('subbaseNote'), { size: 7.5, color: C.muted, after: 1 });
+  if (rows.some((m) => m.useSoilTable)) L.para(t('jbNote'), { size: 7.5, color: C.muted, after: 1 });
+  L.para(t('surfacesNote'), { size: 7.5, color: C.muted });
+}
+
 function surfacesTable(L, ctx, o) {
   const { t, nf, f } = ctx; const S = o.surfaces;
-  const rows = S.rows.map((m) => [{ text: m.name, swatch: m.color }, f.withUnit(m.areaM2, 'm2'), `${nf.fixed(m.share * 100, 1)} %`, nf.fixed(m.cNormal ?? NaN, 2),
-    `${nf.fixed(m.cCbSand ?? NaN, 2)} / ${nf.fixed(m.cCbClay ?? NaN, 2)}`, nf.fixed(m.manningN ?? NaN, 3),
-    m.useSoilTable ? t('jbTable') : `${nf.smart(m.fSandMmH)} / ${nf.smart(m.fClayMmH)}`, nf.smart(m.iaMm)]);
-  if (S.buildingsAreaM2 > 0) rows.push([{ text: t('buildings'), swatch: '#4a5260' }, f.withUnit(S.buildingsAreaM2, 'm2'), `${nf.fixed(S.buildingsShare * 100, 1)} %`, '', '', '', '', '']);
-  L.table([{ title: t('thMaterial') }, { title: t('thArea'), w: 22, align: 'r' }, { title: t('thShare'), w: 14, align: 'r' }, { title: t('thCNormal'), w: 14, align: 'r' },
-    { title: t('thCCb'), w: 24, align: 'r' }, { title: t('thManning'), w: 15, align: 'r' }, { title: t('thInfil'), w: 26, align: 'r' }, { title: t('thIa'), w: 15, align: 'r' }], rows, { size: 7.8 });
-  L.para(t('surfacesNote'), { size: 7.5, color: C.muted });
+  const rows = S.rows.map((m) => [{ text: m.name, swatch: m.color }, f.withUnit(m.areaM2, 'm2'), `${nf.fixed(m.share * 100, 1)} %`, ...materialParamCells(m, t, nf)]);
+  if (S.buildingsAreaM2 > 0) rows.push([{ text: t('buildings'), swatch: '#4a5260' }, f.withUnit(S.buildingsAreaM2, 'm2'), `${nf.fixed(S.buildingsShare * 100, 1)} %`, '', '', '', '', '', '']);
+  L.table([{ title: t('thMaterial') }, { title: t('thArea'), w: 19, align: 'r' }, { title: t('thShare'), w: 13, align: 'r' }, ...PARAM_COLS(t)], rows, { size: 7.6 });
+  materialNotes(L, t, S.rows);
 }
 
 function bluespotTable(L, ctx, I) {
@@ -371,16 +428,27 @@ function balanceSection(L, ctx, opts, letters = null) {
       if (key === 'leavesSiteM3') row.opts = { bg: C.neighbourBg };
       return row;
     });
+    // sub-bases (permeable paving, porous asphalt, rain gardens): split of the infiltrated volume, capacity, cells that ran full
+    if (opts.some((o) => o.dynamic.permeability && o.dynamic.permeability.subbaseCells > 0)) {
+      const P = (o) => o.dynamic.permeability; const has = (o) => P(o) && P(o).subbaseCells > 0;
+      const sub = (k, key) => [{ text: `   ${t(k)}`, color: C.muted }, ...opts.flatMap((o) => (has(o) ? [f.withUnit(P(o)[key], 'm3'), `${nf.fixed((P(o)[key] / tot(o)) * 100, 1)} %`] : ['–', '']))];
+      const at = rows.findIndex((r) => r[0].text === t('kfInfiltrated')) + 1;
+      rows.splice(at, 0, sub('kfSubbaseStill', 'subbaseStoredM3'), sub('kfSubbaseDrained', 'subbaseDrainedM3'));
+      rows.push([t('kfSubbaseCap'), ...opts.flatMap((o) => (has(o) ? [f.withUnit(P(o).subbaseCapacityM3, 'm3'), ''] : ['–', '']))]);
+      rows.push([t('kfSubbaseFull'), ...opts.flatMap((o) => (has(o) ? [t('subbaseFullVal', { n: nf.fixed(P(o).subbaseFullCells), m: nf.fixed(P(o).subbaseCells) }), ''] : ['–', '']))]);
+    }
     rows.push([{ text: t('kfMassError'), bold: true }, ...opts.flatMap((o) => [{ text: `${fmtMassError(o.dynamic.massErrorPct, nf)} %`, bold: true }, f.withUnit(o.dynamic.massResidualM3, 'm3')])]);
     L.table(head(t('modelDynamic').split('(')[0].trim()), rows);
     opts.forEach((o, i) => { const D = o.dynamic; stackBar(L, [[D.initialLossM3, BAL_COL.ia], [D.infiltratedM3, BAL_COL.infil], [D.sewerM3, BAL_COL.sewer], [D.leavesSiteM3, BAL_COL.leaves], [D.storedEndM3, BAL_COL.stored]], tot(o), multi ? letters[i] : null); });
     L.para(t('balanceDynNote'), { size: 7.5, color: C.muted });
+    if (opts.some((o) => o.dynamic.permeability && o.dynamic.permeability.subbaseCells > 0)) L.para(t('balanceSubbaseNote'), { size: 7.5, color: C.muted });
   } else if (!multi || opts.some((o) => o.dynamic)) L.para(t('noDynamic'), { size: 8, color: C.muted });
 }
 
 /** Retention inputs and results for one or more options (one column per option). */
 function retentionSection(L, ctx, opts, letters = null) {
   const { t, nf, f } = ctx;
+  L.need(85); // table and its note together: never leave the method note alone on a page
   L.h2(t('secRetention'));
   if (!opts.some((o) => o.retention)) { L.para(t('retNotAvailable'), { color: C.muted }); return; }
   const v = (fn) => opts.map((o) => (o.retention ? fn(o.retention) : '–'));
@@ -411,10 +479,10 @@ function methodSection(L, ctx) {
   L.h1(t('secMethod'));
   L.para(t('methodIntro'));
   L.bullets([t('methodM1'), t('methodM2'), t('methodRet')]);
-  L.h2(t('assumptionsTitle')); L.bullets(t('assumptions'));
-  L.h2(t('limitationsTitle')); L.bullets(t('limitations'));
+  L.h2(t('assumptionsTitle')); L.bullets(t('assumptions'), { size: 8.5 });
+  L.h2(t('limitationsTitle')); L.bullets(t('limitations'), { size: 8.5 });
   L.h2(t('secValidation')); L.para(t('validationIntro'), { size: 8.5, color: C.muted });
-  L.table([{ title: t('thTest') }, { title: t('thStatus'), w: L.cw * 0.48 }], t('validation'));
+  L.table([{ title: t('thTest') }, { title: t('thStatus'), w: L.cw * 0.48 }], t('validation'), { size: 8, padY: 1.1 });
 }
 
 function appendixSection(L, ctx, model) {
@@ -458,6 +526,7 @@ function singleReport(L, ctx, model, rec) {
   L.font(20, 'bold', C.accent); L.text(t('docTitle'), L.x0, L.y + 7); L.y += 11;
   L.font(12, 'normal', C.text); L.text(model.project.name || o.site.name || '', L.x0, L.y + 4); L.y += 9;
   L.box(t('screeningBoxTitle'), t('screeningBox'));
+  terrainWarningBoxes(L, ctx, model);
   kvTable(L, projectRows(model, t), { kw: 45 });
   L.h2(t('secKeyFigures'));
   const m1 = t('tagInstant'), m2 = t('tagDynamic');
@@ -484,7 +553,8 @@ function singleReport(L, ctx, model, rec) {
   // --- inputs
   L.newPage(); L.h1(`${t('secSite')} · ${t('secRain')}`);
   siteSection(L, ctx, o); rainSection(L, ctx, o);
-  L.newPage(); L.h1(t('secSurfaces'));
+  if (L.yBot - L.y < 150) L.newPage(); else L.gap(6); // the hyetograph may already have spilled onto a new page
+  L.h1(t('secSurfaces'));
   surfacesTable(L, ctx, o);
   const ext = gridExtent(rec.grid);
   mapFigure(L, ctx, { layer: 'materials', rec, extent: ext, title: t('mapMaterials'), legendExtra: { materials: o.surfaces.rows.slice(0, 12), buildings: o.surfaces.buildingsAreaM2 > 0 ? t('buildings').split('(')[0].trim() : null }, caption: o.inputs.caption, maxH: L.yBot - L.y - 30 > 70 ? Math.min(150, L.yBot - L.y - 30) : 150 });
@@ -502,7 +572,7 @@ function singleReport(L, ctx, model, rec) {
     mapFigure(L, ctx, { layer: 'velocity', rec, extent: ext, title: t('mapVelocity'), caption: o.inputs.caption, maxH: half });
   }
   // --- balance, retention
-  if (!D) L.newPage(); else L.need(90);
+  if (!D) L.newPage(); else L.need(D.permeability && D.permeability.subbaseCells > 0 ? 160 : 90); // keep the dynamic balance table on one page
   L.h1(`${t('secBalance')} · ${t('secRetention')}`);
   balanceSection(L, ctx, [o]); retentionSection(L, ctx, [o]);
   L.newPage(); methodSection(L, ctx);
@@ -524,6 +594,7 @@ function comparisonReport(L, ctx, model, records, internals) {
   L.table([{ title: t('thOption'), w: 30 }, { title: '' }, { title: t('model'), w: 70 }],
     opts.map((o, i) => [{ text: `${letters[i]}${i === 0 ? ` (${t('baseline')})` : ''}`, bold: true }, o.name, o.dynamic ? 'instant + dynamic' : 'instant']), { size: 8.5 });
   L.para(basis === 'dynamic' ? t('basisDynamic') : t('basisInstant'), { size: 8.5, color: C.muted });
+  terrainWarningBoxes(L, ctx, model);
   L.h2(t('secCompareSummary'));
   for (const s of model.summary) L.para(s, { size: 8.5, after: 1.4 });
 
@@ -575,7 +646,7 @@ function comparisonReport(L, ctx, model, records, internals) {
       for (let k = 0; k < perPage && p + k < opts.length; k++) {
         const i = p + k;
         const box = fitBox(ext, each, L.yBot - yStart - 22);
-        const r = mapFigure(L, ctx, { layer, rec: records[i], extent: ext, title: `${letters[i]}: ${opts[i].name}`, x: L.x0 + k * (each + gapX), y: yStart, w: box.w, maxH: box.h, legendW: 0, noLegend: true, spots: layer === 'depth' ? opts[i].instant.topBluespots : null, caption: opts[i].inputs.caption });
+        const r = mapFigure(L, ctx, { layer, rec: records[i], extent: ext, title: `${letters[i]}: ${bareName(opts[i].name)}`, x: L.x0 + k * (each + gapX), y: yStart, w: box.w, maxH: box.h, legendW: 0, noLegend: true, spots: layer === 'depth' ? opts[i].instant.topBluespots : null, caption: opts[i].inputs.caption });
         yEnd = Math.max(yEnd, r.endY);
       }
       drawLegend(L, layer, t, nf, L.x1 - legendW, yStart + 6, legendW, extraFor ? extraFor() : { paths: layer === 'depth' });
@@ -609,8 +680,8 @@ function comparisonReport(L, ctx, model, records, internals) {
   {
     const legendW = 50; const gapX = 6; const n = Math.min(opts.length, 2); const each = (L.cw - legendW - 4 - gapX * (n - 1)) / n; const yStart = L.y; let yEnd = yStart;
     for (let k = 0; k < n; k++) {
-      const box = fitBox(ext, each, 68);
-      const r = mapFigure(L, ctx, { layer: 'materials', rec: records[k], extent: ext, title: `${letters[k]}: ${opts[k].name}`, x: L.x0 + k * (each + gapX), y: yStart, w: box.w, maxH: box.h, legendW: 0, noLegend: true });
+      const box = fitBox(ext, each, 62);
+      const r = mapFigure(L, ctx, { layer: 'materials', rec: records[k], extent: ext, title: `${letters[k]}: ${bareName(opts[k].name)}`, x: L.x0 + k * (each + gapX), y: yStart, w: box.w, maxH: box.h, legendW: 0, noLegend: true });
       yEnd = Math.max(yEnd, r.endY);
     }
     const mats = new Map(); opts.forEach((o) => o.surfaces.rows.forEach((m) => { if (!mats.has(m.id)) mats.set(m.id, m); }));
@@ -621,7 +692,9 @@ function comparisonReport(L, ctx, model, records, internals) {
     const srows = ids.map((id) => [{ text: mats.get(id).name, swatch: mats.get(id).color }, ...opts.map((o) => f.withUnit(area(o, id), 'm2')), ...opts.slice(1).map((o) => nf.signed(area(o, id) - area(A, id), (v) => nf.fixed(v)))]);
     srows.push([{ text: t('buildings').split('(')[0].trim(), swatch: '#4a5260' }, ...opts.map((o) => f.withUnit(o.surfaces.buildingsAreaM2, 'm2')), ...opts.slice(1).map((o) => nf.signed(o.surfaces.buildingsAreaM2 - A.surfaces.buildingsAreaM2, (v) => nf.fixed(v)))]);
     L.table([{ title: t('thMaterial') }, ...letters.map((l) => ({ title: `${l} (${f.u.m2})`, w: 28, align: 'r' })), ...opts.slice(1).map((o) => ({ title: `${t('thChange', { x: o.letter, a: A.letter })} (${f.u.m2})`, w: 32, align: 'r' }))], srows, { size: 8 });
-    L.para(t('surfacesNote'), { size: 7.5, color: C.muted });
+    // parameters of every material that occurs in any option (a swapped-in material must be documented too)
+    L.table([{ title: t('thMaterial') }, ...PARAM_COLS(t).map((c) => ({ ...c, w: c.w * 1.3 }))], [...mats.values()].map((m) => [{ text: m.name, swatch: m.color }, ...materialParamCells(m, t, nf)]), { size: 7.8 });
+    materialNotes(L, t, [...mats.values()]);
   }
 
   // --- inputs per option
@@ -636,7 +709,7 @@ function comparisonReport(L, ctx, model, records, internals) {
     inRow(t('sewer'), (o) => sewerLabel(o.inputs.sewer, t)), inRow(t('moisture'), (o) => moistLabel(o.inputs.moisture, t)), inRow(t('soil'), () => 'JB-6'),
     inRow(t('cellSize'), (o) => `${nf.fixed(o.inputs.grid.cellSizeM, 2)} m`),
     inRow(t('dynCell'), (o) => (o.dynamic ? `${nf.fixed(o.dynamic.cellSizeM, 1)} m, ${nf.fixed(o.dynamic.simulatedMin)} min` : '–')),
-    inRow(t('terrainSource'), (o) => ({ synthetic: t('kindSynthetic'), dhm: 'DHM/Terræn', upload: o.site.description }[o.site.terrain])),
+    inRow(t('terrainSource'), (o) => (o.site.terrain === 'synthetic' ? t('kindSynthetic') : `${sourceLabel(o.site.source, t) || (o.site.terrain === 'dhm' ? 'DHM/Terræn' : o.site.description)}${o.site.source && o.site.source.nativeResM != null ? `, ${nf.smart(o.site.source.nativeResM)} m` : ''}`)),
     inRow(t('retInputDischarge'), (o) => (o.retention ? `${nf.smart(o.retention.input.dischargeLSHa)} l/s/ha, T = ${o.retention.input.returnPeriodYears}` : '–')),
     inRow(t('appCaption'), (o) => o.inputs.caption || '–'),
   ], { size: 7.6, padY: 1.1 });
@@ -693,7 +766,7 @@ export async function renderPdf({ model, internals, records, palette }) {
   try { doc.setCreationDate(new Date(model.generatedAt)); doc.setFileId(digest(JSON.stringify(model))); } catch { /* older jsPDF */ }
   doc.setLanguage(model.lang === 'da' ? 'da-DK' : 'en-GB');
   const L = new Layout(doc);
-  const ctx = { t, nf, f, palette, mapsInfo: [] };
+  const ctx = { t, nf, f, palette, mapsInfo: [], project: model.project };
   if (model.kind === 'comparison') comparisonReport(L, ctx, model, records, internals);
   else singleReport(L, ctx, model, records[0]);
   headersFooters(doc, L, model, t);

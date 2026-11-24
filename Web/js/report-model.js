@@ -63,7 +63,16 @@ function captionFor(rec, t, nf) {
   const moist = [t('moistDry'), t('moistMoist'), t('moistWet')][s.moisture] || '';
   const cell = rec.dyn ? `${nf.fixed(rec.grid.dx, 1)} m / ${nf.fixed(rec.dyn.grid.dx, 1)} m` : `${nf.fixed(rec.grid.dx, 1)} m`;
   return [`${t('presetNames')[r.presetId] || r.presetName}: ${nf.smart(r.depthMm)} mm × ${nf.fixed(r.climateFactor, 2)} = ${nf.smart(r.designDepthMm)} mm`,
-    sewer.split(',')[0], `${t('moisture')}: ${moist.split(' (')[0].toLowerCase()}`, `${t('cellSize')} ${cell}`, t('screeningShort').split(' – ')[0]].join(' · ');
+    sewer.split(',')[0], `${t('moisture')}: ${moist.split(' (')[0].toLowerCase()}`, `${t('cellSize')} ${cell}`, terrainCaption(rec, t, nf), t('screeningShort').split(' – ')[0]].filter(Boolean).join(' · ');
+}
+
+/** Short terrain note for the OUT-9 caption: source and native resolution, flagged when not fit for site screening. */
+function terrainCaption(rec, t, nf) {
+  const tm = rec.site && rec.site.terrainMeta; if (!tm || !(tm.sourceName || tm.nativeResM)) return null;
+  const name = tm.sourceId === 'upload' ? (tm.fileName ? t('uploadedFile', { f: tm.fileName }) : t('uploadedFileNoName')) : (tm.sourceName || '').split(/ [–(]/)[0];
+  const lvl = tm.suitability && tm.suitability.level;
+  const flag = lvl === 'unsuitable' || lvl === 'poor' ? ` – ${t('suitLabels')[lvl]}` : '';
+  return `${t('terrainSource')}: ${name}${tm.nativeResM ? ` ${nf.smart(tm.nativeResM)} m` : ''}${flag}`;
 }
 
 /** Surface swaps made in the app (step 3) as [{from, to}] material names; the ground swap has from = null. */
@@ -89,6 +98,9 @@ function surfacesOf(rec) {
       id: m.id || `#${idx}`, name: m.name || `Material ${idx}`, category: m.category || '', color: m.color || '#999999',
       areaM2: c * a, share: total ? c / total : 0, cNormal: m.cNormal, cCbSand: m.cCloudburstSand, cCbClay: m.cCloudburstClay,
       manningN: m.manningN, fSandMmH: m.infiltrationSand, fClayMmH: m.infiltrationClay, iaMm: m.initialLossMm, useSoilTable: !!m.useSoilTable, sealed: !!m.sealed,
+      // sub-base reservoir (docs/physics-permeability.md §1.5): storageMm drains to the subsoil at the JB fc when subsoilLimited;
+      // `compacted` picks the JB row for soil-table materials and for the subsoil under a sub-base (palette default: true)
+      storageMm: m.storageMm || 0, subsoilLimited: !!m.subsoilLimited, compacted: m.compacted !== false,
     };
   });
   return { rows, buildingsAreaM2: bld * a, buildingsShare: total ? bld / total : 0, totalAreaM2: total * a };
@@ -142,6 +154,16 @@ function dynamicFiguresOf(rec) {
     maxDepthM: ov.maxD, wetAreaM2: wetArea, areaOverM2: Object.fromEntries(DEPTH_THRESHOLDS_CM.map((c, i) => [c, ov.areas[i]])),
     maxVelocityMS: maxV, hazardAreaAtLeastM2: Object.fromEntries(HAZARD_BREAKS.map((b, i) => [b, hz[i]])), hazardDangerSomeM2: hz[1], hvOver05M2: hv05,
     simulatedMin: (m.simulatedS || 0) / 60, cellSizeM: g.dx, steps: m.steps, elapsedS: m.elapsedS, minShownDepthM: DYN_WET,
+    permeability: permeabilityOf(d.permeability),
+  };
+}
+
+/** Sub-base and cap statistics of a dynamic run (engine PermeabilityStats; null for runs made before they existed). */
+function permeabilityOf(p) {
+  if (!p || p.subbaseCells == null) return null;
+  return {
+    subbaseCells: p.subbaseCells, subbaseFullCells: p.subbaseFullCells, subbaseStoredM3: p.subbaseStoredM3, subbaseDrainedM3: p.subbaseDrainedM3,
+    subbaseCapacityM3: p.subbaseCapacityM3, cappedCells: p.cappedCells || 0, groundwaterCapApplied: (p.cappedCells || 0) > 0,
   };
 }
 
@@ -155,14 +177,27 @@ function retentionOf(rec) {
   };
 }
 
+/** Suitability of the terrain for site-scale screening, re-derived from level + native resolution so it can be translated. */
+function suitabilityOf(tm) {
+  const sv = tm && tm.suitability; if (!sv || !sv.level) return null;
+  return { level: sv.level, nativeResM: tm.nativeResM ?? null, surfaceModel: /surface model/i.test(sv.message || ''), label: sv.label || '', message: sv.message || '' };
+}
+
 function siteOf(rec) {
-  const s = rec.site || {}; const g = rec.grid;
+  const s = rec.site || {}; const g = rec.grid; const tm = s.terrainMeta || null; // terrain metadata from the import (report.js terrainMetaOf)
   const kind = s.kind === 'synthetic' ? 'synthetic' : s.kind === 'real' ? 'real' : 'custom';
-  const isDhm = kind !== 'synthetic' && (/DHM/i.test(s.description || '') || !!s.bbox || !!s.dhmFile);
+  const isDhm = kind !== 'synthetic' && (tm && tm.sourceId ? tm.sourceId === 'dk-dhm' : (/DHM/i.test(s.description || '') || !!s.bbox || !!s.dhmFile));
+  const crs = kind === 'synthetic' ? null : tm && tm.crs ? (tm.crs.epsg ? `EPSG:${tm.crs.epsg}${tm.crs.name ? ` (${tm.crs.name})` : ''}` : tm.crs.name || null)
+    : tm && tm.prepared ? 'none' : 'EPSG:25832 (ETRS89 / UTM 32N)';
   return {
     id: s.id, name: s.name, kind, description: s.description || '', bbox: s.bbox || null, dhmFile: s.dhmFile || null,
-    crs: kind === 'synthetic' ? null : 'EPSG:25832 (ETRS89 / UTM 32N)', terrain: kind === 'synthetic' ? 'synthetic' : isDhm ? 'dhm' : 'upload',
+    crs, terrain: kind === 'synthetic' ? 'synthetic' : isDhm ? 'dhm' : 'upload',
     extent: { x0: g.x0, y0: g.y0, x1: g.x0 + g.nx * g.dx, y1: g.y0 + g.ny * g.dx },
+    source: tm ? {
+      id: tm.sourceId || null, name: tm.sourceName || null, fileName: tm.fileName || null, nativeResM: tm.nativeResM ?? null, method: tm.method || null, verticalDatum: tm.verticalDatum || null,
+      attribution: [...(tm.attribution || [])], osm: tm.osm || null, warnings: [...(tm.warnings || [])],
+    } : null,
+    suitability: suitabilityOf(tm),
   };
 }
 
@@ -253,6 +288,8 @@ function inputDifferences(base, o, t) {
   if ((A.dynamic && B.dynamic) && A.dynamic.cellSizeM !== B.dynamic.cellSizeM) out.push(t('dynCell'));
   const ea = base.site.extent, eb = o.site.extent;
   if (Math.abs(ea.x0 - eb.x0) + Math.abs(ea.y0 - eb.y0) + Math.abs(ea.x1 - eb.x1) + Math.abs(ea.y1 - eb.y1) > 1e-6) out.push(t('extent'));
+  const sa = base.site.source, sb = o.site.source;
+  if ((sa || sb) && (!sa || !sb || sa.id !== sb.id || sa.nativeResM !== sb.nativeResM || sa.method !== sb.method || !!sa.osm !== !!sb.osm)) out.push(t('terrainSource'));
   const ta = base.retention?.input, tb = o.retention?.input;
   if (ta && tb && (ta.dischargeLSHa !== tb.dischargeLSHa || ta.returnPeriodYears !== tb.returnPeriodYears || ta.climateFactor !== tb.climateFactor)) out.push(t('secRetention'));
   return out;
@@ -317,12 +354,15 @@ export function buildReportModel({ kind, records, project = {}, lang = 'en', too
   const model = {
     schema: SCHEMA, kind, lang: t.lang, generatedAt,
     tool: { name: 'Cloudburst web', engineVersion: tool.engineVersion || null, ...tool },
-    project: { name: '', address: '', matrikel: '', client: '', author: '', company: '', date: generatedAt.slice(0, 10), revision: '', notes: '', ...project },
+    project: { name: '', address: '', matrikel: '', client: '', author: '', company: '', date: generatedAt.slice(0, 10), revision: '', notes: '', terrainDate: '', ...project },
     disclaimer: { short: t('screeningShort'), long: t('screeningBox') },
     site: opts[0].site,
     options: opts,
     references: { method: 'docs/physics-permeability.md', requirements: 'docs/PRD.md', reports: 'docs/reports.md' },
     comparison: null, summary: [],
+    // terrain that is too coarse for site screening (shown as a warning on the cover); one entry per affected option
+    terrainWarnings: opts.filter((o) => o.site.suitability && (o.site.suitability.level === 'unsuitable' || o.site.suitability.level === 'poor'))
+      .map((o) => ({ option: o.letter, level: o.site.suitability.level, nativeResM: o.site.suitability.nativeResM, source: o.site.source && o.site.source.name })),
   };
   const internals = { diffs: [] };
   if (kind === 'comparison') {

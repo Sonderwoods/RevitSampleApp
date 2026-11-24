@@ -305,3 +305,28 @@ export async function prepareSiteDesc(siteDesc, info = null) {
   attachContext(p.bytes, { preparedDesc: out });
   return out;
 }
+
+/**
+ * Everything the UI and the report say about where a site's terrain came from, merged from the site info (fetched
+ * sources set sourceId, nativeResM, suitability, attribution, …) and `siteDesc.prepared` (set by prepareSiteDesc for
+ * every terrain file). Plain data. Returns null for the built-in synthetic samples (no terrain import).
+ *   {sourceId, sourceName, nativeResM, crs: {epsg, name}|null, method, suitability: {level, label, message}|null,
+ *    attribution: [..], osm: stats|null, warnings: [..], verticalDatum, prepared, canAddOsm}
+ */
+export function terrainMeta(info, prepared) {
+  const i = info || {}; const p = prepared && !prepared.failed ? prepared : null;
+  if (i.kind === 'synthetic' || (!p && !i.sourceId && !(prepared && prepared.failed))) return null;
+  const sourceId = (p && p.sourceId) || i.sourceId || 'upload';
+  const src = getSource(sourceId);
+  const sourceName = sourceId === 'upload' ? (i.fileName ? `Uploaded file: ${i.fileName}` : (i.dhmFile ? `File ${i.dhmFile}` : 'Uploaded terrain file')) : (src ? src.name : sourceId);
+  const crs = p && p.crs ? { epsg: p.crs.epsg, name: p.crs.name } : i.epsg ? { epsg: i.epsg, name: i.crsName || '' } : null;
+  const nres = (p && p.nativeResM) ?? i.nativeResM ?? null;
+  const suit = (p && p.suitability) || i.suitability || null;
+  const attribution = [...new Set([...(i.attribution || []), ...((p && p.attribution) || [])].filter(Boolean))];
+  const warnings = [...new Set([...(i.warnings || []), ...((prepared && prepared.warnings) || [])])];
+  const metric = !!(crs && crs.epsg && (() => { const c = crsFromEpsg(crs.epsg); return c && c.kind === 'projected' && !c.notMetric; })());
+  return {
+    sourceId, sourceName, fileName: sourceId === 'upload' ? (i.fileName || i.dhmFile || null) : null, nativeResM: nres, crs, method: (p && p.method) || null, suitability: suit ? { level: suit.level, label: suit.label, message: suit.message } : null,
+    attribution, osm: (p && p.osm) || null, warnings, verticalDatum: (p && p.verticalDatum) || i.verticalDatum || null, prepared: !!p, canAddOsm: !!p && metric && !p.osm,
+  };
+}

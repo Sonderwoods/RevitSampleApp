@@ -34,6 +34,11 @@ export const TPEAK = classed('tpeak', 'Time until deepest', 'min after rain star
   ['#FDE725', '#7AD151', '#22A884', '#2A788E', '#414487', '#440154'],
   ['0–30', '30–60', '60–90', '90–120', '120–180', '> 180']);
 
+/** Total infiltration per cell over the event (dynamic model), mm; includes water that entered a sub-base. */
+export const INFIL = classed('infil', 'Soaked into the ground', 'mm', 1, [10, 25, 50, 100],
+  ['#E5F5E0', '#A1D99B', '#5AAE61', '#238B45', '#00441B'],
+  ['1–10', '10–25', '25–50', '50–100', '> 100']);
+
 /** Difference B − A in metres: green drier, red wetter. */
 export const DIFF = {
   id: 'diff', title: 'Change in depth, B vs A', unit: 'cm',
@@ -52,5 +57,6 @@ export const LAYERS = {
   velocity: { ramp: VELOCITY, label: 'Speed', needsDynamic: true, tip: 'How fast the water runs (full simulation only)' },
   hazard: { ramp: HAZARD, label: 'Danger', needsDynamic: true, tip: 'Danger to people from depth and speed (full simulation only)' },
   tpeak: { ramp: TPEAK, label: 'Timing', needsDynamic: true, tip: 'Minutes until the water is deepest (full simulation only)' },
+  infil: { ramp: INFIL, label: 'Soaked in', needsDynamic: true, tip: 'How much rain soaked into the ground or a sub-base, in mm (full simulation only)' },
   materials: { ramp: null, label: 'Surfaces', needsDynamic: false, tip: 'The surface materials the model uses' },
 };

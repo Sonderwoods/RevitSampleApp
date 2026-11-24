@@ -7,6 +7,7 @@
 // Everything else (UI, CSS) lives in this file and in report-*.js / report.css.
 import { translator, LANGS } from './report-i18n.js';
 import { addExportAction } from './hooks.js';
+import { terrainMeta } from './sources/registry.js';
 // The model and PDF modules are loaded on first use, so a problem in them can never stop the app itself from loading.
 const lazy = { model: () => import('./report-model.js'), pdf: () => import('./report-pdf.js') };
 
@@ -22,7 +23,8 @@ function ensureCss() {
 // ------------------------------------------------------------------------------------------------ state → records
 function siteInfoOf(S) {
   const i = S.site.info || {};
-  return { id: S.site.id, name: S.site.name, kind: S.site.kind, description: i.description || '', bbox: i.bbox || null, dhmFile: i.dhmFile || null };
+  return { id: S.site.id, name: S.site.name, kind: S.site.kind, description: i.description || '', bbox: i.bbox || null, dhmFile: i.dhmFile || null,
+    terrainMeta: S.site.kind === 'synthetic' ? null : terrainMeta(i, S.siteDesc && S.siteDesc.prepared) };
 }
 let appSettingsKey = null; // app.js settingsKey(), handed over by the snapshot hook
 /** Same inputs as app.js settingsKey(); only used until the snapshot hook has handed over the real one. */
@@ -147,7 +149,7 @@ export function openReportDialog(S, hooks = {}) {
   const st = {
     lang: saved.lang || ((navigator.language || '').startsWith('da') ? 'da' : 'en'),
     kind: S.compare || (S.options && S.options.length >= 2 && saved.kind === 'comparison') ? 'comparison' : 'single',
-    project: { name: '', address: '', matrikel: '', client: '', author: '', company: '', date: new Date().toISOString().slice(0, 10), revision: '', notes: '', ...(saved.project || {}) },
+    project: { name: '', address: '', matrikel: '', client: '', author: '', company: '', date: new Date().toISOString().slice(0, 10), revision: '', notes: '', terrainDate: '', ...(saved.project || {}) },
     single: 'current', picked: [],
   };
   if (!saved.project || !saved.project.date) st.project.date = new Date().toISOString().slice(0, 10);
@@ -194,7 +196,8 @@ export function openReportDialog(S, hooks = {}) {
     const P = st.project; const fld = (k, label, attrs = {}) => el('label', { class: 'rpt-lab' }, label, el('input', { class: 'rpt-in', 'data-field': k, value: P[k] || '', oninput: (e) => { P[k] = e.target.value; }, ...attrs }));
     body.append(el('h3', { class: 'rpt-sub', text: t('dlgProject') }),
       el('div', { class: 'rpt-grid' }, fld('name', t('project')), fld('address', t('address')), fld('matrikel', t('matrikel')), fld('client', t('client')),
-        fld('author', t('author')), fld('company', t('company')), fld('date', t('date'), { type: 'date' }), fld('revision', t('revision'))),
+        fld('author', t('author')), fld('company', t('company')), fld('date', t('date'), { type: 'date' }), fld('revision', t('revision')),
+        fld('terrainDate', t('terrainDate'), { placeholder: t('dlgTerrainDatePh') })),
       el('label', { class: 'rpt-lab' }, t('notes'), el('textarea', { class: 'rpt-in', 'data-field': 'notes', rows: 3, placeholder: t('dlgNotesPh'), oninput: (e) => { P.notes = e.target.value; } }, P.notes || '')),
       el('p', { class: 'rpt-note', text: t('dlgDisclaimer') }));
     card.append(body);

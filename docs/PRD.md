@@ -161,7 +161,7 @@ Q = \frac{(P - I_a)^2}{P - I_a + S}, \qquad S = \frac{25400}{CN} - 254
 
 ### M1 instant model
 
-1. Effective rain per cell: `R = max(0, P − Ia) · C_event`, where `C_event` is the cloudburst coefficient from the palette, or the CN formula. Subtract the sewer loss on sealed, sewered cells.
+1. Effective rain per cell: `R = max(0, min(C_event · P, P − Ia) − sewer)`, where `C_event` is the cloudburst coefficient from the palette (blended sand → clay by the soil's clay weight), or the CN formula, and `sewer` is the sewer loss on sewer-connected cells (sealed surfaces; not open water). `C_event` already contains interception, depression storage and infiltration, so it applies to the whole rain depth; `Ia` only bounds the loss from below (runoff never exceeds `P − Ia`). *Changed from the earlier `max(0, P − Ia) · C_event`, which counted the initial loss twice (green roofs ran off about 20 % less in M1 than in M2); see finding F5 in docs/physics-permeability.md.*
 2. Priority-flood to find depressions. Build the depression hierarchy (Barnes, Callaghan and Wickert 2021).
 3. Fill–spill–merge: route each cell's volume downslope, fill depressions, spill overflow to the neighbour, merge when both are full.
 4. Bluespot depth = filled water surface minus terrain.
@@ -321,12 +321,23 @@ Where groundwater is within 1 m of the surface, set infiltration to zero after t
 
 | Event | Depth | Shape | Use |
 | --- | --- | --- | --- |
-| T = 10 years | about 35 mm × 1.3 | 4-hour CDS, peak about 151 mm/h | Everyday design check |
-| T = 100 years | about 59 mm × 1.4 = 83 mm | 4-hour CDS, peak about 231 mm/h | Cloudburst default |
-| "2011 test" | 100–135 mm | Box rain over 2 hours | Stress test, Copenhagen 2 July 2011 |
+| T = 10 years | about 35 mm × 1.3 = 45.5 mm | 4-hour CDS, 1-minute blocks, peak about 194 mm/h (252 mm/h with the climate factor) | Everyday design check |
+| T = 100 years | about 59 mm × 1.4 = 83 mm | 4-hour CDS, 1-minute blocks, peak about 327 mm/h (457 mm/h with the climate factor) | Cloudburst default |
+| "2011 test" | 120 mm (range 100–135 mm) | Box rain over 2 hours, 60 mm/h | Stress test, Copenhagen 2 July 2011 |
+| Box 83 mm | 83 mm | Box rain over 4 hours, about 21 mm/h | Same volume as T = 100 without the peak |
 | Custom | user depth and duration | Box rain or CSV | Any |
 
 Depths are for Odense from the Skrift 30 regional model, before the climate factor. Regenerate them for the site with the current Spildevandskomiteen tool; Skrift 32 replaces the Skrift 30 model.
+
+How the CDS is built (`Shared/cloudburst-core/src/rain.rs`, pinned by the test `preset_peaks_and_depths_are_pinned`):
+
+- IDF: an **indicative** two-parameter curve `i(d, T) = 240 · (T/10)^0.227 / (d + 5)^0.835` µm/s, d in minutes. It is calibrated only so that the 4-hour depths match the table above (34.96 mm at T = 10, 58.97 mm at T = 100). It is not the Skrift 30/32 regional model and must not be quoted as such.
+- Alternating blocks of **1 minute** over 4 hours, the 1-minute block at the centre (peak position 0.5), the series scaled so its total equals the preset depth.
+- The climate factor multiplies every block (depth and peak alike). The peak in the table is therefore `i(1 min, T)` scaled to the depth, then × climate factor.
+
+The peak figures in earlier versions of this table (151 and 231 mm/h) could not be reproduced from this IDF at any single block length (they would need a 3-minute block for T = 10 but a 4-minute one for T = 100, or 6 and 9 minutes if the climate factor were included), so they were not derived from the curve the tool uses; they were corrected to what the code produces (review finding F14). The 1-minute block was kept because it is the usual time resolution of Danish CDS rains: the Spildevandskomiteen regional models give intensities down to 1-minute durations and CDS rains for pipe and surface models are normally generated at that resolution. For comparison, the same T = 100 storm averaged over 5 minutes peaks at about 213 mm/h (298 mm/h with the climate factor) and over 10 minutes at about 152 mm/h (213 mm/h).
+
+Sensitivity: on the built-in school yard (2 m cells, T = 100, combined sewer, moist soil) replacing the 1-minute peak by a 5- or 10-minute one changes infiltration by under 1 % and water leaving the site by under 0.5 %; the area deeper than 10 cm changes by up to 9 %. Infiltration-excess on permeable surfaces and the first minutes of ponding are where the peak matters; totals are governed by depth and duration.
 
 CDS rain concentrates the peak. Surface flooding depends more on total volume and duration, so always run a box rain as well.
 

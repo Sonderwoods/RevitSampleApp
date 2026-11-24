@@ -97,4 +97,39 @@ mod tests {
         assert!((b.depth_mm() - 100.0).abs() < 1e-9);
         assert!((b.peak_mm_h() - 50.0).abs() < 1e-9);
     }
+
+    /// Pins the four rain presets the apps ship (Web/engine/cloudburst-wasm.js rainPresets, .NET RainEvent.Presets()):
+    /// total depth and peak 1-minute intensity, before and after the climate factor. Review finding F14
+    /// (docs/physics-permeability.md): the CDS uses 1-minute alternating blocks on purpose (Danish practice, docs/PRD.md
+    /// "Design rain"), so the T = 100 peak is ~327 mm/h before and ~457 mm/h after the 1.4 climate factor. A change to the
+    /// IDF, the block length or the scaling must update these numbers AND the PRD table deliberately.
+    #[test]
+    fn preset_peaks_and_depths_are_pinned() {
+        // (name, series, depth before CF mm, peak before CF mm/h); climate factors 1.3 / 1.4 / 1.0 / 1.0
+        let presets = [
+            ("t10", RainSeries::cds(10.0, 240.0, 35.0, 60.0, 0.5), 35.0, 193.73),
+            ("t100", RainSeries::cds(100.0, 240.0, 59.0, 60.0, 0.5), 59.0, 326.58),
+            ("test2011", RainSeries::box_rain(120.0, 120.0, 60.0), 120.0, 60.0),
+            ("box83", RainSeries::box_rain(83.0, 240.0, 60.0), 83.0, 20.75),
+        ];
+        for (name, r, depth, peak) in presets {
+            assert!((r.depth_mm() - depth).abs() < 1e-6, "{name}: depth {}", r.depth_mm());
+            assert!((r.peak_mm_h() - peak).abs() < 0.05, "{name}: peak {}", r.peak_mm_h());
+            assert_eq!(r.step_s, 60.0, "{name}: 1-minute blocks");
+        }
+        // with climate factor, as shown in the apps and the PDF report
+        let t100 = RainSeries::cds(100.0, 240.0, 59.0, 60.0, 0.5);
+        assert!((t100.peak_mm_h() * 1.4 - 457.2).abs() < 0.1);
+        assert!((t100.depth_mm() * 1.4 - 82.6).abs() < 1e-6);
+        let t10 = RainSeries::cds(10.0, 240.0, 35.0, 60.0, 0.5);
+        assert!((t10.peak_mm_h() * 1.3 - 251.85).abs() < 0.1);
+        // peak sits at the centre (peak_position 0.5 → block 120 of 240)
+        let k = t100.intensity_mm_h.iter().position(|&v| v == t100.peak_mm_h()).unwrap();
+        assert_eq!(k, 120);
+        // averaged over longer windows the same storm is much flatter (the sensitivity the report mentions)
+        let five = RainSeries::cds(100.0, 240.0, 59.0, 300.0, 0.5);
+        assert!((five.peak_mm_h() - 213.2).abs() < 0.2, "5-min block peak {}", five.peak_mm_h());
+        let ten = RainSeries::cds(100.0, 240.0, 59.0, 600.0, 0.5);
+        assert!((ten.peak_mm_h() - 152.0).abs() < 0.2, "10-min block peak {}", ten.peak_mm_h());
+    }
 }
