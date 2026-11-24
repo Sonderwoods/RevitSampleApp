@@ -3,6 +3,7 @@ name: release
 # Publishes a GitHub Release (shown on the repository front page) with:
 #   Cloudburst_<ver>_x64_en-US.msi / Cloudburst_<ver>_x64-setup.exe  – desktop app (Tauri)
 #   Cloudburst-Rhino.zip, Cloudburst-Revit.zip, Cloudburst-Standalone.zip – plug-ins and the standalone panel app
+#   cloudburst-<ver>-rh8*-win.yak – Rhino 8 + Grasshopper as a Yak package (Rhino/pack-yak.ps1)
 # Trigger: push a tag like v0.1.0, or Actions → release → Run workflow (enter the tag).
 on:
   push:
@@ -44,6 +45,10 @@ jobs:
           Compress-Archive -Path dist/Revit/* -DestinationPath Cloudburst-Revit.zip -Force
           if (Test-Path dist/Standalone) { Compress-Archive -Path dist/Standalone/* -DestinationPath Cloudburst-Standalone.zip -Force }
 
+      - name: Yak package (Rhino Package Manager)
+        shell: pwsh
+        run: ./Rhino/pack-yak.ps1 -Version "$env:TAG"
+
       - name: Built-in DHM API key for the desktop app (Web/js/config.js)
         run: python tools/inject_dhm_key.py
 
@@ -71,6 +76,7 @@ jobs:
             | Download | What |
             | --- | --- |
             | `Cloudburst_*_x64_en-US.msi` / `Cloudburst_*_x64-setup.exe` | Desktop app (Windows 10/11): sample sites, live bluespots, dynamic simulation, real Danish terrain |
+            | `cloudburst-*-win.yak` | Rhino 8 + Grasshopper as one package: drag the file into Rhino 8 and restart Rhino. Run `Cloudburst`. |
             | `Cloudburst-Rhino.zip` | Rhino 8 plug-in (.rhp) + Grasshopper components (.gha). Drag the .rhp into Rhino, run `Cloudburst`. |
             | `Cloudburst-Revit.zip` | Revit 2026 add-in. Unzip into `%AppData%\Autodesk\Revit\Addins\2026\` (the .addin file next to the `Cloudburst` folder). |
             | `Cloudburst-Standalone.zip` | The shared panel without CAD (quick test) |
@@ -79,6 +85,7 @@ jobs:
           files: |
             Desktop/src-tauri/target/release/bundle/msi/*.msi
             Desktop/src-tauri/target/release/bundle/nsis/*.exe
+            dist/*.yak
             Cloudburst-Rhino.zip
             Cloudburst-Revit.zip
             Cloudburst-Standalone.zip

@@ -37,6 +37,9 @@ jobs:
       - name: Build package (engine + Rhino + Grasshopper + Revit)
         shell: pwsh
         run: ./build.ps1
+      - name: Yak package (Rhino Package Manager)
+        shell: pwsh
+        run: ./Rhino/pack-yak.ps1
       - uses: actions/upload-artifact@v4
         with:
           name: cloudburst-windows
