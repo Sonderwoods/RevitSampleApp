@@ -6,6 +6,7 @@ import { DEPTH, VELOCITY, HAZARD, TPEAK, DIFF, LAYERS } from './js/colors.js';
 import { baseCanvas, buildingsCanvas, overlayCanvas, materialCanvas, materialsPresent, sampleAt, cellAt, differenceArray } from './js/raster.js';
 import { MapView, roundRect } from './js/mapview.js';
 import { openDhmPicker } from './js/dhm.js';
+import { openReportDialog, reportOptionMeta } from './js/report.js'; // [report-hook] PDF report (see js/report.js)
 
 // ------------------------------------------------------------------------------------------------ constants
 const LOCATIONS = {
@@ -475,7 +476,8 @@ function renderMapChrome() {
   vs.classList.toggle('hidden', !!S.compare);
   const ex = $('#exportBar'); ex.innerHTML = '';
   ex.append(h('button', { title: 'Download current layer as PNG', html: `${icon('image', 16)}PNG`, onclick: exportPNG }),
-    h('button', { title: 'Download results (stats + bluespots) as JSON', html: `${icon('json', 16)}JSON`, onclick: exportJSON }));
+    h('button', { title: 'Download results (stats + bluespots) as JSON', html: `${icon('json', 16)}JSON`, onclick: exportJSON }),
+    h('button#reportBtn', { title: 'Export a PDF screening report (single result or option comparison)', html: `${icon('file', 16)}PDF`, onclick: () => openReportDialog(S, { settingsKey, saveOption }) })); // [report-hook]
   const zb = $('#zoomBar'); zb.innerHTML = '';
   zb.append(h('button', { title: 'Zoom in', html: icon('plus', 16), onclick: () => map.zoomBy(1.5) }),
     h('button', { title: 'Zoom out', html: icon('minus', 16), onclick: () => map.zoomBy(1 / 1.5) }),
@@ -951,6 +953,7 @@ function snapshot(name, grid, sampleJson, inst, base) {
     id: Math.random().toString(36).slice(2), name, short: shortName(name), caption: captionText(),
     grid, base: base || baseCanvas(grid, S.info.palette), buildingsVec: sampleJson ? sampleJson.buildings : null,
     buildingsRaster: sampleJson ? null : buildingsCanvas(grid), depth: inst.depth, stats: inst.stats, bluespots: inst.bluespots, paths: inst.paths,
+    report: reportOptionMeta(S, grid, sampleJson, { settingsKey }), // [report-hook] inputs/dynamic/retention for the PDF report
   };
 }
 function saveOption() {
