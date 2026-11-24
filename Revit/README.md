@@ -43,7 +43,18 @@ The first time Revit starts with the add-in, it asks whether to load it. Choose 
 | **Clear preview** | Delete the result preview (DirectShapes tagged `CloudburstPreview`). Baked results stay. |
 | **Window** | Fallback: opens the same UI as a modeless floating window owned by Revit. |
 
-How each pick role works in Revit:
+**Use the Revit model** (button at the top of *Site geometry*) fills in the site without picking:
+
+* **Terrain**: every Toposolid (not its sub-divisions) and legacy topography.
+* **Buildings**: roofs, floors and walls. Roofs and floors give the building tops, walls the outline. Parts lower than the
+  *building minimum height* above the terrain (ground slabs, low walls) are not treated as buildings.
+* **Surface materials**: the Revit material of the top face of each Toposolid and sub-division, and of each roof
+  (e.g. a green roof), matched to the Cloudburst palette by name (English and Danish keywords). So the workflow is:
+  give the toposolid, its sub-divisions and the roofs the right Revit materials, then press the button.
+* It reads what is visible in the active 3D or plan view (phases, design options, hidden elements and section boxes are
+  respected). From any other view it reads the whole model. Linked models are not read.
+
+Picking by hand still works and overrides it. How each pick role works in Revit:
 
 * **Terrain / design terrain**: select Toposolids, legacy topography, floors, DirectShapes or imported DWG/IFC meshes. The add-in uses the faces that point up.
 * **Buildings**: select walls, roofs, floors, masses, generic models, families or DirectShapes. The add-in uses the full solid geometry.

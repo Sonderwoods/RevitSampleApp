@@ -47,6 +47,8 @@ namespace Cloudburst
         public Polygon2 Footprint { get; set; }
         public double HeightAboveTerrain { get; set; } = 8.0;
         public RoofDrainage Drainage { get; set; } = RoofDrainage.ToSewer;
+        /// <summary>Optional palette material of the roof (e.g. a green roof). Null = the palette's default roof.</summary>
+        public string RoofMaterialId { get; set; }
         public string Name { get; set; }
         /// <summary>Façade threshold above terrain used for building flags (OUT-6), m.</summary>
         public double ThresholdHeight { get; set; } = 0.10;

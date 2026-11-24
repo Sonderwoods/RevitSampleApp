@@ -18,14 +18,14 @@ namespace Cloudburst.Revit
     /// Units: Revit internal feet ↔ Cloudburst metres (×0.3048), internal coordinates.
     /// TODO: optional shared-coordinates (survey point) transform for real-world sites.
     /// </summary>
-    public sealed class RevitHost : ICloudburstHost
+    public sealed class RevitHost : ICloudburstHost, ICloudburstAutoSite
     {
         /// <summary>One remembered pick: a Revit element or an in-memory object (demo site).</summary>
         private sealed class Pick
         {
             public ElementId Id;
             public object Memory;          // TriangleMesh / BuildingInput / MaterialRegion / WallLine / Polygon2
-            public string MaterialId;      // Surfaces
+            public string MaterialId;      // Surfaces; Buildings: roof material (null = default roof)
             public double WallHeight = 0.10;
             public string Kind;            // for summaries ("Floor", "Toposolid", ...)
         }
@@ -201,8 +201,9 @@ namespace Cloudburst.Revit
             catch { return "Element"; }
         }
 
-        /// <summary>Top face material → type name → element name → category, matched against the palette; else the default.</summary>
-        private string GuessMaterial(Element e)
+        /// <summary>Top face material → type name → element name → category, matched against the palette; else the default
+        /// (or null with <paramref name="orDefault"/> = false, and then the category is not used either).</summary>
+        private string GuessMaterial(Element e, bool orDefault = true)
         {
             var pal = Palette;
             if (pal == null) return null;
@@ -210,13 +211,13 @@ namespace Cloudburst.Revit
             try { candidates.Add(GeometryReader.TopFaceMaterialName(e)); } catch { }
             try { candidates.Add(e.Document.GetElement(e.GetTypeId())?.Name); } catch { }
             try { candidates.Add(e.Name); } catch { }
-            try { candidates.Add(e.Category?.Name); } catch { }
+            if (orDefault) { try { candidates.Add(e.Category?.Name); } catch { } }
             foreach (var c in candidates.Where(c => !string.IsNullOrWhiteSpace(c)))
             {
                 var m = pal.Guess(c);
                 if (m != null) return m.Id;
             }
-            return pal.Default?.Id;
+            return orDefault ? pal.Default?.Id : null;
         }
 
         private List<Pick> Get(PickRole role)
@@ -264,6 +265,82 @@ namespace Cloudburst.Revit
             lock (_gate) return _summaries.TryGetValue(role, out var s) ? s : PickSummary.Empty(role);
         }
 
+        // =====================================================================================================  auto-detect
+        public string AutoSiteLabel => "Use the Revit model";
+
+        public string AutoSiteHint => "Toposolids become the terrain, roofs, floors and walls the buildings. Surface materials are read from the Revit materials of the toposolids, their sub-divisions and the roofs.";
+
+        public Task<string> DetectSiteAsync() => _bridge.RunAsync(DetectCore);
+
+        /// <summary>
+        /// Reads the site from the element categories instead of asking the user to pick every role:
+        /// terrain = toposolids (not sub-divisions) and legacy topography; buildings = roofs, floors and walls;
+        /// surfaces = toposolids and their sub-divisions with the material of their top face.
+        /// Uses what is visible in the active 3D or plan view (so phases, design options, hidden elements and section
+        /// boxes are respected), otherwise the whole model.
+        /// </summary>
+        private string DetectCore(UIApplication app)
+        {
+            var uidoc = app.ActiveUIDocument;
+            RevitUtil.Require(uidoc?.Document);
+            var doc = uidoc.Document;
+            var view = uidoc.ActiveView;
+            bool byView = view != null && !view.IsTemplate && (view is View3D || view is ViewPlan);
+
+            List<Element> Of(BuiltInCategory cat)
+            {
+                try
+                {
+                    var c = byView ? new FilteredElementCollector(doc, view.Id) : new FilteredElementCollector(doc);
+                    return c.OfCategory(cat).WhereElementIsNotElementType().ToElements()
+                        .Where(e => e != null && !RevitUtil.IsCloudburstShape(e, RevitUtil.DataPreview) && !RevitUtil.IsCloudburstShape(e, RevitUtil.DataBake)).ToList();
+                }
+                catch (Exception ex) { Logger.Write($"Detect {cat}: {ex.Message}"); return new List<Element>(); }
+            }
+            bool IsSubdivision(Element e)
+            {
+                try { return e is Toposolid t && t.HostTopoId != null && t.HostTopoId != ElementId.InvalidElementId; } catch { return false; }
+            }
+
+            var topo = Of(BuiltInCategory.OST_Toposolid);
+            var terrain = topo.Where(e => !IsSubdivision(e)).ToList();
+            terrain.AddRange(Of(BuiltInCategory.OST_Topography));
+            var subdivisions = topo.Where(IsSubdivision).ToList();
+            var roofs = Of(BuiltInCategory.OST_Roofs);
+            var floors = Of(BuiltInCategory.OST_Floors);
+            var walls = Of(BuiltInCategory.OST_Walls).Where(e => e is Wall).ToList();
+
+            if (terrain.Count == 0)
+            {
+                Log(byView ? $"No toposolid or topography is visible in the view “{view.Name}”." : "The model has no toposolid or topography.");
+                return null;
+            }
+
+            var buildings = new List<Pick>();
+            buildings.AddRange(roofs.Select(e => new Pick { Id = e.Id, Kind = "Roof", MaterialId = GuessMaterial(e, false) }));
+            buildings.AddRange(floors.Select(e => new Pick { Id = e.Id, Kind = "Floor", MaterialId = GuessMaterial(e, false) }));
+            buildings.AddRange(walls.Select(e => new Pick { Id = e.Id, Kind = "Wall" }));
+
+            // base terrain first, sub-divisions after it so they win where they cover
+            var surfaces = new List<Pick>();
+            surfaces.AddRange(terrain.Select(e => new Pick { Id = e.Id, Kind = KindOf(e), MaterialId = GuessMaterial(e) }));
+            surfaces.AddRange(subdivisions.Select(e => new Pick { Id = e.Id, Kind = "Sub-division", MaterialId = GuessMaterial(e) }));
+
+            lock (_gate)
+            {
+                _picks[PickRole.Terrain] = terrain.Select(e => new Pick { Id = e.Id, Kind = KindOf(e) }).ToList();
+                _picks[PickRole.Buildings] = buildings;
+                _picks[PickRole.Surfaces] = surfaces;
+                foreach (var role in new[] { PickRole.Terrain, PickRole.Buildings, PickRole.Surfaces })
+                    _summaries[role] = Summarize(role);
+            }
+
+            string scope = byView ? $"view “{view.Name}”" : "whole model";
+            string found = $"{terrain.Count} terrain, {roofs.Count} roofs, {floors.Count} floors, {walls.Count} walls, {subdivisions.Count} sub-divisions ({scope})";
+            Log("Site read from the Revit model: " + found + ".");
+            return found;
+        }
+
         // =====================================================================================================  collect
         public Task<SiteModel> CollectSiteAsync() => _bridge.RunAsync(CollectCore);
 
@@ -293,12 +370,19 @@ namespace Cloudburst.Revit
                     if (mesh != null) target.Add(mesh); else Log($"No terrain geometry in {KindOf(e)} {e.Id}");
                 }
 
+            var wallElements = new List<Element>();
             foreach (var p in Of(PickRole.Buildings))
             {
                 if (p.Memory is BuildingInput bi) { site.Buildings.Add(bi); continue; }
                 var e = El(p); if (e == null) continue;
+                if (e is Wall) { wallElements.Add(e); continue; } // all walls together: they only outline the buildings
                 var mesh = GeometryReader.ReadMesh(e, 0.0);
-                if (mesh != null) site.Buildings.Add(new BuildingInput { Geometry = mesh, Name = GeometryReader.SafeName(e) ?? KindOf(e) });
+                if (mesh != null) site.Buildings.Add(new BuildingInput { Geometry = mesh, Name = GeometryReader.SafeName(e) ?? KindOf(e), RoofMaterialId = p.MaterialId });
+            }
+            if (wallElements.Count > 0)
+            {
+                var mesh = GeometryReader.ReadMerged(wallElements, 0.0, "Walls");
+                if (mesh != null) site.Buildings.Add(new BuildingInput { Geometry = mesh, Name = $"{wallElements.Count} walls" });
             }
 
             foreach (var p in Of(PickRole.Surfaces))

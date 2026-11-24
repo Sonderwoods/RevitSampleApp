@@ -22,6 +22,12 @@ namespace Cloudburst.UI.ViewModels
         public ICommand LoadDemoCommand { get; private set; }
         public ICommand BuildGridCommand { get; private set; }
         public ICommand ImportTerrainFilesCommand { get; private set; }
+        public ICommand AutoSiteCommand { get; private set; }
+
+        /// <summary>True when the host can read the site from its model without picking (Revit).</summary>
+        public bool CanAutoSite => Host is ICloudburstAutoSite;
+        public string AutoSiteLabel => (Host as ICloudburstAutoSite)?.AutoSiteLabel ?? "";
+        public string AutoSiteHint => (Host as ICloudburstAutoSite)?.AutoSiteHint ?? "";
 
         private double _cellSize = 1.0, _buildingMinHeight = 5.0;
         private bool _hasGrid, _gridStale;
@@ -56,6 +62,22 @@ namespace Cloudburst.UI.ViewModels
             LoadDemoCommand = Cmd(LoadDemoAsync, () => !IsDynamicRunning, "Load demo site");
             BuildGridCommand = Cmd(BuildGridAsync, () => !IsDynamicRunning && HasTerrainSource, "Build grid");
             ImportTerrainFilesCommand = Cmd(ImportTerrainFilesAsync, () => !IsDynamicRunning, "Import DHM terrain");
+            AutoSiteCommand = Cmd(AutoSiteAsync, () => CanAutoSite && !IsDynamicRunning, "Read the site from the model");
+        }
+
+        private async Task AutoSiteAsync()
+        {
+            var auto = Host as ICloudburstAutoSite;
+            if (auto == null) return;
+            using (Busy($"Reading the site from {HostName}…"))
+            {
+                string found = await OnUi(() => auto.DetectSiteAsync());
+                RefreshPicks();
+                if (found == null) { Toast($"No terrain found. Add a toposolid, or show it in the active view, then try again.", "Warning"); return; }
+                MarkGridStale();
+                await UpdateBoundsFromHostAsync();
+                Toast("Site read from the model: " + found, "Success");
+            }
         }
 
         public PickItemViewModel WallsItem => PickItems.FirstOrDefault(p => p.Role == PickRole.Walls);

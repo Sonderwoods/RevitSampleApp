@@ -84,7 +84,7 @@ namespace Cloudburst.Model
                 foreach (var b in site.Buildings)
                 {
                     int drain = (int)b.Drainage;
-                    int roof = -1;
+                    int roof = string.IsNullOrEmpty(b.RoofMaterialId) ? -1 : palette.IndexOf(b.RoofMaterialId);
                     if (b.Geometry != null && b.Geometry.TriangleCount > 0)
                         NativeMethods.cb_site_add_building_mesh(s, b.Geometry.Vertices, b.Geometry.Vertices.Length, b.Geometry.Triangles, b.Geometry.Triangles.Length, drain, roof);
                     else if (b.Footprint != null)

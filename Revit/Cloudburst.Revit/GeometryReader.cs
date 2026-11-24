@@ -28,6 +28,22 @@ namespace Cloudburst.Revit
             return b.IsEmpty ? null : b.Build(tag ?? SafeName(e));
         }
 
+        /// <summary>All solids/meshes of several elements in one mesh (e.g. every wall of the model).</summary>
+        public static TriangleMesh ReadMerged(IEnumerable<Element> elements, double minAbsNz = 0.0, string tag = null)
+        {
+            var b = new TriangleMesh.Builder();
+            foreach (var e in elements)
+            {
+                try
+                {
+                    var geo = e.get_Geometry(FineOptions());
+                    if (geo != null) Collect(geo, b, minAbsNz, 0);
+                }
+                catch (Exception ex) { Logger.Write($"ReadMerged {e?.Id}: {ex.Message}"); }
+            }
+            return b.IsEmpty ? null : b.Build(tag);
+        }
+
         private static void Collect(GeometryElement geo, TriangleMesh.Builder b, double minAbsNz, int depth)
         {
             if (geo == null || depth > 6) return;

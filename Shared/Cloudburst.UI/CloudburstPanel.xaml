@@ -371,6 +371,13 @@
                                     <TextBlock Text="{Binding HostName, StringFormat='Pick objects in {0}'}" Style="{StaticResource T.Muted}" FontSize="11"/>
                                 </StackPanel>
                             </DockPanel>
+                            <!-- hosts that can read the site from the model (Revit): one button instead of picking each role -->
+                            <StackPanel Margin="0,6,0,8" Visibility="{Binding CanAutoSite, Converter={StaticResource Vis}}">
+                                <Button Style="{StaticResource Btn.Primary}" Content="{Binding AutoSiteLabel}" c:Ix.Glyph="&#xE8B3;" Padding="12,7"
+                                        HorizontalAlignment="Stretch" Command="{Binding AutoSiteCommand}"/>
+                                <TextBlock Text="{Binding AutoSiteHint}" Style="{StaticResource T.Muted}" FontSize="11" TextWrapping="Wrap" Margin="0,6,0,0"/>
+                                <TextBlock Text="Or pick by hand below to override." Style="{StaticResource T.Muted}" FontSize="11" Margin="0,2,0,0"/>
+                            </StackPanel>
                             <ItemsControl ItemsSource="{Binding PickItems}" ItemTemplate="{StaticResource PickRow}" Focusable="False"/>
 
                             <!-- DHM rasters -->
