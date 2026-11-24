@@ -1,7 +1,13 @@
-// "New site from Danmarks Højdemodel": pick a location on a map, paste an API key, fetch DHM/Terræn and open it.
-// The key stays in the browser (optionally remembered in localStorage) and is sent only to the official WCS endpoint.
+// "New site from Danmarks Højdemodel": pick a location on a map, fetch DHM/Terræn and open it.
+// Uses the key built into the deployment (js/config.js, from the GitHub secret DHM_API_KEY) unless the user pastes
+// their own. A pasted key stays in the browser (optionally remembered in localStorage) and is sent only to the WCS.
 
 import { h, $, toast, icon } from './util.js';
+import { DHM_API_KEY } from './config.js';
+
+/** Key built into this deployment from the GitHub secret DHM_API_KEY (empty in source builds). */
+export const BUILTIN_KEY = (DHM_API_KEY || '').trim();
+export const hasBuiltInKey = () => !!BUILTIN_KEY;
 
 const PROVIDERS = {
   datafordeler: { label: 'Datafordeler API key', url: 'https://wcs.datafordeler.dk/DHMNedboer/dhm_wcs/1.0.0/WCS', param: 'apikey', help: 'Get a free API key at <a href="https://portal.datafordeler.dk/hjem" target="_blank" rel="noopener">portal.datafordeler.dk</a> (log in with MitID/NemID or e-mail)' },
@@ -62,6 +68,21 @@ export async function fetchDhm(bbox, { provider, key, res = 0.4, coverage = 'dhm
   return buf;
 }
 
+/**
+ * Fetch with the user's key, or the built-in key when none is given. Tries the other provider once, because a
+ * Datafordeler key may also be a Dataforsyningen token (and vice versa). Returns { bytes, provider }.
+ */
+export async function fetchDhmAuto(bbox, { provider = 'datafordeler', key = '', res = 0.4 } = {}) {
+  const k = (key || '').trim() || BUILTIN_KEY;
+  if (!k) throw new Error('No API key: paste a Datafordeler key.');
+  try { return { bytes: await fetchDhm(bbox, { provider, key: k, res }), provider }; }
+  catch (e) {
+    const other = provider === 'datafordeler' ? 'dataforsyningen' : 'datafordeler';
+    try { return { bytes: await fetchDhm(bbox, { provider: other, key: k, res }), provider: other }; }
+    catch { throw e; }
+  }
+}
+
 let proxyP = null;
 /** True when the page is served by Web/serve.py (which relays WCS requests and avoids CORS problems). */
 export function hasProxy() {
@@ -109,7 +130,7 @@ export async function openDhmPicker(onTerrain, initial = {}) {
   const sizeOut = h('b', `${state.size} m`);
   const coordOut = h('div.dhm-coord.mono');
   const status = h('div.dhm-status');
-  const keyInput = h('input.dhm-input.mono', { type: 'password', placeholder: 'Paste key…', value: state.key, autocomplete: 'off', spellcheck: false });
+  const keyInput = h('input.dhm-input.mono', { type: 'password', placeholder: BUILTIN_KEY ? 'Built-in key (or paste your own)' : 'Paste key…', value: state.key, autocomplete: 'off', spellcheck: false });
   const remember = h('input', { type: 'checkbox', checked: state.remember });
   const provSel = h('select.dhm-input', ...Object.entries(PROVIDERS).map(([k, p]) => h('option', { value: k, selected: k === state.provider }, p.label)));
   const help = h('div.dhm-help');
@@ -126,8 +147,9 @@ export async function openDhmPicker(onTerrain, initial = {}) {
     coordOut.textContent = `${state.lat.toFixed(5)}°N ${state.lon.toFixed(5)}°E · EPSG:25832 ${Math.round(b[0])}, ${Math.round(b[1])} → ${Math.round(b[2])}, ${Math.round(b[3])}`;
     sizeOut.textContent = `${state.size} × ${state.size} m`;
     const px = Math.round(state.size / state.res) ** 2;
-    help.innerHTML = `${PROVIDERS[provSel.value].help}. Download ≈ ${(px * 4 / 1e6).toFixed(1)} MB.`;
-    go.disabled = !keyInput.value.trim();
+    const own = keyInput.value.trim();
+    help.innerHTML = `${!own && BUILTIN_KEY ? 'Using the built-in key – no key needed. Optional: ' : ''}${PROVIDERS[provSel.value].help}. Download ≈ ${(px * 4 / 1e6).toFixed(1)} MB.`;
+    go.disabled = !own && !BUILTIN_KEY;
   };
   provSel.onchange = updateInfo; keyInput.oninput = updateInfo;
   resSel.onchange = () => { state.res = +resSel.value; updateInfo(); };
@@ -199,20 +221,14 @@ export async function openDhmPicker(onTerrain, initial = {}) {
   };
 
   go.onclick = async () => {
-    const key = keyInput.value.trim(); if (!key) return;
+    const key = keyInput.value.trim(); if (!key && !BUILTIN_KEY) return;
     store.set(LS.provider, provSel.value);
     store.set(LS.key, remember.checked ? key : '');
     go.disabled = true; status.className = 'dhm-status busy'; status.textContent = 'Downloading DHM/Terræn…';
     const b = bbox();
     try {
-      let bytes;
-      try { bytes = await fetchDhm(b, { provider: provSel.value, key, res: state.res }); }
-      catch (e) {
-        // A Datafordeler key may also be a Dataforsyningen token (and vice versa): try the other service once.
-        const other = provSel.value === 'datafordeler' ? 'dataforsyningen' : 'datafordeler';
-        try { bytes = await fetchDhm(b, { provider: other, key, res: state.res }); store.set(LS.provider, other); }
-        catch { throw e; }
-      }
+      const { bytes, provider } = await fetchDhmAuto(b, { provider: provSel.value, key, res: state.res });
+      if (key && provider !== provSel.value) store.set(LS.provider, provider);
       status.className = 'dhm-status ok'; status.textContent = `Received ${(bytes.length / 1e6).toFixed(1)} MB – building grid…`;
       const name = state.name || `Site at ${state.lat.toFixed(4)}°N ${state.lon.toFixed(4)}°E`;
       const info = { id: 'custom', name, description: `DHM/Terræn ${state.res} m, ${state.size} × ${state.size} m around ${state.lat.toFixed(5)}°N ${state.lon.toFixed(5)}°E`, kind: 'custom', rainPreset: 1, bbox: b.map(Math.round), dhmFile: null, compareWith: null };

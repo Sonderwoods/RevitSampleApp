@@ -25,6 +25,9 @@ jobs:
 
   windows-plugins:
     runs-on: windows-latest
+    env:
+      # Built into Cloudburst.Net.dll (Rhino / Grasshopper / Revit / standalone) for in-app DHM downloads.
+      DHM_API_KEY: ${{ secrets.DHM_API_KEY }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -47,6 +50,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+      - name: Built-in DHM API key (secret DHM_API_KEY → Web/js/config.js)
+        env:
+          DHM_API_KEY: ${{ secrets.DHM_API_KEY }}
+        run: python tools/inject_dhm_key.py
       - name: Build Tauri desktop app (NSIS + MSI installers)
         working-directory: Desktop/src-tauri
         run: npx --yes @tauri-apps/cli@2 build
