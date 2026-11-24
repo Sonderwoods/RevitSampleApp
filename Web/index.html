@@ -21,8 +21,9 @@
   </script>
 </head>
 <body>
+  <a class="skip" href="#leftPanel">Skip to steps</a>
   <header class="topbar">
-    <button class="brand" id="brand" title="All samples">
+    <button class="brand" id="brand" title="Back to the start page">
       <span class="logo"><svg width="22" height="22" viewBox="0 0 24 24"><defs><linearGradient id="lg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#7cc4f2"/><stop offset="1" stop-color="#1f78c8"/></linearGradient></defs><path d="M12 2.7c3.6 4.3 6.5 8 6.5 11.3a6.5 6.5 0 0 1-13 0C5.5 10.7 8.4 7 12 2.7z" fill="url(#lg)"/><path d="M8.6 14.6c.4 1.6 1.7 2.6 3.3 2.8" stroke="#fff" stroke-opacity=".75" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg></span>
       <span class="brand-name">Cloudburst</span>
       <span class="brand-sub">Flood screening</span>
@@ -36,26 +37,41 @@
   <main id="gallery" class="screen gallery">
     <section class="hero">
       <div class="hero-text">
-        <div class="eyebrow">Cloudburst screening · Web</div>
-        <h1>Where does the water go?</h1>
-        <p>Bluespot screening that updates as you move a slider, and a 2D dynamic simulation, running locally in your
-          browser on the same Rust engine as the Revit and Rhino plug-ins.</p>
+        <div class="eyebrow">Rainwater screening for architects and landscape architects</div>
+        <h1>Where does the rain go?</h1>
+        <p>See where rainwater runs and collects on a site during a cloudburst, then test a design change and compare.
+          Everything runs in your browser; nothing is uploaded.</p>
+        <div class="hero-cta">
+          <button class="btn primary big-cta" id="startExample">Open an example site</button>
+          <span class="muted">No sign-up, no files needed. Results appear in about a second.</span>
+        </div>
       </div>
-      <div class="hero-stats" id="heroStats"></div>
+      <ol class="how" id="howItWorks" aria-label="How it works">
+        <li><b>Site</b><span>an example, a place in Denmark or your own terrain file</span></li>
+        <li><b>Rain</b><span>pick a storm, e.g. a 100-year cloudburst</span></li>
+        <li><b>Surfaces</b><span>swap asphalt for pavers, add a rain garden</span></li>
+        <li><b>Run</b><span>instant check, or a full simulation over time</span></li>
+        <li><b>Compare</b><span>save option A and B, see what changed</span></li>
+        <li><b>Export</b><span>map image or data</span></li>
+      </ol>
     </section>
-    <section class="gal-section">
-      <div class="sec-head"><h2>Sample sites</h2><span class="muted">Synthetic sites with terrain, buildings and surfaces built in</span></div>
+    <section class="gal-section" id="examplesSection">
+      <div class="sec-head"><h2>Example sites</h2><span class="muted">Ready to run: terrain, buildings and surfaces included</span></div>
       <div class="cards" id="cardsSynthetic"></div>
     </section>
+    <section class="gal-section" id="siteSources">
+      <div class="sec-head"><h2>Your own site</h2><span class="muted">Bring terrain from a map or a file</span></div>
+      <div class="cards source-cards" id="cardsSources"></div>
+    </section>
     <section class="gal-section">
-      <div class="sec-head"><h2>Real Danish sites</h2><span class="muted">Terrain from DHM/Terræn (Dataforsyningen). Drop the GeoTIFF to start.</span></div>
+      <div class="sec-head"><h2>Real Danish sites</h2><span class="muted">Known flood spots. These need terrain: a free API key or a terrain file</span></div>
       <div class="cards" id="cardsReal"></div>
     </section>
-    <footer class="gal-foot">SCREENING MODEL, not for compliance. Results are indicative and depend on terrain resolution and surface assumptions.</footer>
+    <footer class="gal-foot">Screening model for comparing design options, not for permits or compliance. Results depend on terrain resolution and surface assumptions.</footer>
   </main>
 
   <main id="workspace" class="screen workspace hidden">
-    <aside class="panel left" id="leftPanel"></aside>
+    <aside class="panel left" id="leftPanel" aria-label="Steps"></aside>
     <section class="mapwrap" id="mapwrap">
       <canvas id="map"></canvas>
       <div id="view3d" class="view3d hidden"></div>
@@ -66,18 +82,19 @@
       <div class="map-right">
         <div class="vbar glass" id="viewSeg"></div>
         <div class="vbar glass" id="zoomBar"></div>
-        <div class="vbar glass" id="exportBar"></div>
       </div>
       <div class="legend glass" id="legend"></div>
       <div class="timebar glass hidden" id="timebar"></div>
       <div class="caption" id="caption"></div>
       <div class="tooltip hidden" id="tooltip"></div>
-      <div class="map-busy" id="mapBusy"><div class="pulse"></div><span>Computing…</span></div>
+      <div class="map-busy" id="mapBusy" role="status"><div class="pulse"></div><span>Computing…</span></div>
+      <div class="run-status glass hidden" id="runStatus" role="status"></div>
+      <div class="first-hint glass hidden" id="firstRunHint" role="note"></div>
       <div class="dropzone-overlay hidden" id="siteDrop"></div>
     </section>
-    <aside class="panel right" id="rightPanel"></aside>
+    <aside class="panel right" id="rightPanel" aria-label="Results"></aside>
   </main>
-  <input type="file" id="fileInput" accept=".tif,.tiff,.asc,.txt" hidden>
+  <input type="file" id="fileInput" accept=".tif,.tiff,.asc,.txt,.xyz,.csv" hidden>
   <script type="module" src="app.js"></script>
 </body>
 </html>
