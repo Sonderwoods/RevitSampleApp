@@ -12,7 +12,8 @@ Local server for the Cloudburst web app: static files + a pass-through for DHM r
 /proxy/copernicus/<tile>/<tile>.tif → Copernicus DEM GLO-30 on AWS (no CORS there); Range requests are passed through
 /proxy/overpass (POST)     → Overpass API (OpenStreetMap), first endpoint that answers
 The API key is passed through as given by the browser and never stored or logged by this server. Only these fixed
-upstreams are reachable (no open proxy).
+upstreams are reachable (no open proxy). The server listens on this machine only (127.0.0.1) and refuses requests
+addressed to any other host name (DNS rebinding).
 """
 import http.server
 import os
@@ -28,13 +29,29 @@ UPSTREAM = {
 
 COPERNICUS = "https://copernicus-dem-30m.s3.amazonaws.com"
 COPERNICUS_PATH = re.compile(r"^/proxy/copernicus/(Copernicus_DSM_COG_10_[NS]\d\d_00_[EW]\d{3}_00_DEM)/\1\.tif$")
+LOCAL_HOSTS = {"localhost", "127.0.0.1", "[::1]"}
 OVERPASS = ["https://overpass-api.de/api/interpreter", "https://overpass.kumi.systems/api/interpreter"]
 
 
 class Handler(http.server.SimpleHTTPRequestHandler):
     extensions_map = {**http.server.SimpleHTTPRequestHandler.extensions_map, ".wasm": "application/wasm", ".js": "text/javascript", ".mjs": "text/javascript"}
 
+    def _local(self):
+        """True when the request is addressed to this machine by name; otherwise answers 403."""
+        host = (self.headers.get("Host") or "").strip().lower()
+        name = host.rsplit(":", 1)[0] if not host.endswith("]") else host
+        if name in LOCAL_HOSTS:
+            return True
+        self._send(403, b"forbidden host", "text/plain")
+        return False
+
+    def do_HEAD(self):
+        if self._local():
+            super().do_HEAD()
+
     def do_GET(self):
+        if not self._local():
+            return
         path, _, query = self.path.partition("?")
         if path == "/proxy/ping":
             return self._send(200, b"ok", "text/plain")
@@ -49,9 +66,16 @@ class Handler(http.server.SimpleHTTPRequestHandler):
         return super().do_GET()
 
     def do_POST(self):
+        if not self._local():
+            return
         if self.path.partition("?")[0] != "/proxy/overpass":
             return self._send(404, b"not found", "text/plain")
-        n = int(self.headers.get("Content-Length") or 0)
+        try:
+            n = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            n = -1
+        if n < 0:
+            return self._send(400, b"bad Content-Length", "text/plain")
         if n > 100_000:
             return self._send(413, b"query too large", "text/plain")
         body = self.rfile.read(n)
@@ -121,7 +145,7 @@ if __name__ == "__main__":
     server = None
     for p in range(port, port + 20):  # first free port
         try:
-            server = Server(("", p), Handler)
+            server = Server(("127.0.0.1", p), Handler)
             port = p
             break
         except OSError:
