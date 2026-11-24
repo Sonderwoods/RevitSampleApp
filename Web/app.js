@@ -8,6 +8,7 @@ import { MapView, roundRect } from './js/mapview.js';
 import { openDhmPicker } from './js/dhm.js';
 import { addSiteSource, addExportAction, siteSources, exportActions, hooks } from './js/hooks.js';
 import { help, term, TERMS, installTips } from './js/terms.js';
+import { reportOptionMeta } from './js/report.js'; // [report-hook] registers the PDF report export action (see js/report.js)
 
 // ------------------------------------------------------------------------------------------------ constants
 const LOCATIONS = {
@@ -1263,6 +1264,7 @@ function snapshot(name, grid, sampleJson, inst, base, short = null) {
     id: Math.random().toString(36).slice(2), name, short: short || shortName(name), caption: captionText(),
     grid, base: base || baseCanvas(grid, S.info.palette), buildingsVec: sampleJson ? sampleJson.buildings : null,
     buildingsRaster: sampleJson ? null : buildingsCanvas(grid), depth: inst.depth, stats: inst.stats, bluespots: inst.bluespots, paths: inst.paths,
+    report: reportOptionMeta(S, grid, sampleJson, { settingsKey }), // [report-hook] inputs/dynamic/retention for the PDF report
   };
 }
 function saveOption() {

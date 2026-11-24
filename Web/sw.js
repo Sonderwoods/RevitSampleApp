@@ -4,7 +4,9 @@
 const CACHE = 'cloudburst-v1';
 const SHELL = ['./', 'index.html', 'app.js', 'styles.css', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png',
   'engine/cloudburst-wasm.js', 'engine/engine-worker.js', 'engine/engine-client.js', 'engine/cloudburst_core.wasm',
-  'js/util.js', 'js/colors.js', 'js/raster.js', 'js/mapview.js', 'js/view3d.js', 'js/dhm.js', 'js/hooks.js', 'js/terms.js'];
+  'js/util.js', 'js/colors.js', 'js/raster.js', 'js/mapview.js', 'js/view3d.js', 'js/dhm.js', 'js/hooks.js', 'js/terms.js',
+  // PDF report (js/report.js): precached so "Export report" works offline
+  'js/report.js', 'js/report-model.js', 'js/report-pdf.js', 'js/report-maps.js', 'js/report-i18n.js', 'report.css', 'vendor/jspdf/jspdf.umd.min.js'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => Promise.all(SHELL.map((u) => c.add(u).catch(() => null)))).then(() => self.skipWaiting()));
