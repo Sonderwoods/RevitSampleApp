@@ -237,7 +237,7 @@ export function chooseCellSize(widthM, heightM, { sizes = CELL_SIZES, maxCells =
  * size with `method`, and encode so the engine's cells receive exactly these values.
  * Returns {bytes, grid: {x0, y0, nx, ny, d}, values, epsg, crs, cellSize, method, nativeResM, warnings, stats}.
  */
-export async function prepareTerrain(input, { name = '', method = 'mean', cellSize, bbox = null, maxCells = MAX_CELLS } = {}) {
+export async function prepareTerrain(input, { name = '', method = 'mean', cellSize, bbox = null, maxCells = MAX_CELLS, nativeResM: knownRes = null } = {}) {
   const r = input && input.data && input.width ? input : await readTerrainFile(input, { name });
   const warnings = [...(r.warnings || [])];
   let crs = crsFromEpsg(r.epsg);
@@ -274,10 +274,11 @@ export async function prepareTerrain(input, { name = '', method = 'mean', cellSi
     const st = stats(vals);
     if (!st.valid) throw new Error('The terrain has no valid heights (all no-data).');
     if (st.nodataFraction > 0.02) warnings.push(`${(st.nodataFraction * 100).toFixed(0)} % of the grid has no terrain data; those cells are inactive.`);
-    if (nres2 > t.d * 0.75 && how !== 'reproject (bilinear)') warnings.push(`Terrain (${nres2} m) is coarser than the ${t.d} m grid: values are interpolated, not measured.`);
+    const realRes = knownRes || nres2;
+    if (realRes > t.d * 1.5) warnings.push(`Terrain data (${realRes} m) is coarser than the ${t.d} m grid: values between samples are interpolated, not measured.`);
     const epsg = c ? c.epsg : r.epsg || 0;
     const bytes = writeGeoTiff(engineRaster(t, vals, epsg));
-    return { bytes, grid: t, values: vals, epsg, crs: c, cellSize: t.d, method: how, nativeResM: nres2, warnings: [...new Set(warnings)], stats: st, verticalDatum: r.verticalCrs || null };
+    return { bytes, grid: t, values: vals, epsg, crs: c, cellSize: t.d, method: how, nativeResM: knownRes || nres2, warnings: [...new Set(warnings)], stats: st, verticalDatum: r.verticalCrs || null };
   }
 }
 
@@ -289,14 +290,18 @@ export async function prepareTerrain(input, { name = '', method = 'mean', cellSi
 export async function prepareSiteDesc(siteDesc, info = null) {
   if (!siteDesc || !siteDesc.terrainBytes || siteDesc.prepared) return siteDesc;
   const ctx = contextOf(siteDesc.terrainBytes) || {};
+  // Bytes we produced ourselves (the app rebuilds {terrainBytes} after design changes): never re-aggregate them.
+  if (ctx.preparedDesc) return { ...ctx.preparedDesc, ...siteDesc, prepared: ctx.preparedDesc.prepared };
   const inf = ctx.info || info || {};
-  const p = await prepareTerrain(siteDesc.terrainBytes, { method: (inf.terrainOptions && inf.terrainOptions.method) || 'mean', name: inf.name });
-  const out = { ...siteDesc, terrainBytes: p.bytes, prepared: { ...p, bytes: undefined, values: undefined, sourceId: inf.sourceId || 'upload', attribution: [...(inf.attribution || []), ...(ctx.osm ? [ctx.osm.attribution] : [])], suitability: suitability(getSource(inf.sourceId || 'upload'), { cellSize: p.cellSize, nativeResM: inf.nativeResM ?? p.nativeResM }) } };
+  const p = await prepareTerrain(siteDesc.terrainBytes, { method: (inf.terrainOptions && inf.terrainOptions.method) || 'mean', name: inf.name, nativeResM: inf.nativeResM || null });
+  // `prepared` travels to the engine worker with the description, so it must be plain, cloneable data (no functions).
+  const out = { ...siteDesc, terrainBytes: p.bytes, prepared: { ...p, bytes: undefined, values: undefined, crs: p.crs ? { epsg: p.crs.epsg, name: p.crs.name } : null, sourceId: inf.sourceId || 'upload', attribution: [...(inf.attribution || []), ...(ctx.osm ? [ctx.osm.attribution] : [])], suitability: suitability(getSource(inf.sourceId || 'upload'), { cellSize: p.cellSize, nativeResM: inf.nativeResM ?? p.nativeResM }) } };
   if (ctx.osm) {
     out.buildings = [...(siteDesc.buildings || []), ...ctx.osm.buildings];
     out.surfaces = [...(siteDesc.surfaces || []), ...ctx.osm.surfaces];
     out.bridgeCuts = [...(siteDesc.bridgeCuts || []), ...ctx.osm.bridgeCuts];
     out.prepared.osm = ctx.osm.stats;
   }
+  attachContext(p.bytes, { preparedDesc: out });
   return out;
 }

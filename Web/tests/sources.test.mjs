@@ -12,7 +12,6 @@ import { snapDhmBbox, dhmTiles, parseWcsCapabilities, fetchDhmTiles } from '../j
 import { decodePng, describeImagerySources, fetchTerrarium } from '../js/sources/terrarium.js';
 import { osmToSite, keyhole, clipRing, areaMaterial, buildingHeight } from '../js/sources/osm.js';
 import { prepareTerrain, prepareSiteDesc, suitability, listSources, SOURCES, readTerrainFile, attachContext, fetchTerrain } from '../js/sources/registry.js';
-import { latLonToUtm32 } from '../js/dhm.js';
 import { utm32ToLatLon } from '../js/util.js';
 import { CloudburstEngine } from '../engine/cloudburst-wasm.js';
 
@@ -111,9 +110,20 @@ test('.prj sidecar → EPSG', () => {
 });
 
 // ------------------------------------------------------------------------------------------------ CRS
-test('Transverse Mercator agrees with the existing UTM32 helpers and round-trips', () => {
+// The Snyder-series UTM32 formula the app used before (independent implementation, for comparison)
+function snyderUtm32(lat, lon) {
+  const a = 6378137, f = 1 / 298.257222101, k0 = 0.9996, e2 = f * (2 - f), ep2 = e2 / (1 - e2);
+  const lon0 = (9 * Math.PI) / 180, phi = (lat * Math.PI) / 180, lam = (lon * Math.PI) / 180;
+  const N = a / Math.sqrt(1 - e2 * Math.sin(phi) ** 2), T = Math.tan(phi) ** 2, C = ep2 * Math.cos(phi) ** 2, A = Math.cos(phi) * (lam - lon0);
+  const M = a * ((1 - e2 / 4 - (3 * e2 ** 2) / 64 - (5 * e2 ** 3) / 256) * phi - ((3 * e2) / 8 + (3 * e2 ** 2) / 32 + (45 * e2 ** 3) / 1024) * Math.sin(2 * phi)
+    + ((15 * e2 ** 2) / 256 + (45 * e2 ** 3) / 1024) * Math.sin(4 * phi) - ((35 * e2 ** 3) / 3072) * Math.sin(6 * phi));
+  const E = k0 * N * (A + ((1 - T + C) * A ** 3) / 6 + ((5 - 18 * T + T * T + 72 * C - 58 * ep2) * A ** 5) / 120) + 500000;
+  const Nn = k0 * (M + N * Math.tan(phi) * ((A * A) / 2 + ((5 - T + 9 * C + 4 * C * C) * A ** 4) / 24 + ((61 - 58 * T + T * T + 600 * C - 330 * ep2) * A ** 6) / 720));
+  return { E, N: Nn };
+}
+test('Transverse Mercator round-trips and agrees with util.js utm32ToLatLon and a meridian-arc integral', () => {
   for (const [lat, lon] of [[55.6761, 12.5683], [57.05, 9.92], [54.9, 8.2], [55.1, 14.9]]) {
-    const a = tmForward(lat, lon, { lon0: 9 }), b = latLonToUtm32(lat, lon);
+    const a = tmForward(lat, lon, { lon0: 9 }), b = snyderUtm32(lat, lon);
     near(a.E, b.E, 0.05, 'E'); near(a.N, b.N, 0.05, 'N');
     const ll = tmInverse(a.E, a.N, { lon0: 9 }); near(ll.lat, lat, 1e-9); near(ll.lon, lon, 1e-9);
     const u = utm32ToLatLon(a.E, a.N); near(u.lat, lat, 1e-5); near(u.lon, lon, 1e-5);
@@ -190,6 +200,10 @@ test('prepareSiteDesc: decodes, aggregates, carries OSM context attached to the 
   assert.ok(sd.prepared && sd.prepared.cellSize === 1 && sd.buildings.length === 1 && sd.prepared.attribution.includes('osm'));
   assert.equal(sd.prepared.suitability.level, 'good');
   const again = await prepareSiteDesc(sd); assert.equal(again, sd, 'idempotent');
+  // the app rebuilds {terrainBytes} after design changes: prepared bytes must not be re-aggregated, OSM must survive
+  const rebuilt = await prepareSiteDesc({ terrainBytes: sd.terrainBytes });
+  assert.equal(rebuilt.terrainBytes, sd.terrainBytes); assert.equal(rebuilt.buildings.length, 1); assert.equal(rebuilt.prepared.cellSize, 1);
+  structuredClone(rebuilt); // must be postMessage-able to the engine worker (no functions inside)
 });
 test('prepareTerrain: geographic raster is reprojected to metric UTM', async () => {
   const p = await prepareTerrain(fx('int16_pred2_deflate_geographic.tif'));
