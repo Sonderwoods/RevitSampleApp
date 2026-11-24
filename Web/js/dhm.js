@@ -49,7 +49,8 @@ async function geocode(q, dkOnly) {
   return (await r.json()).map((x) => ({ name: x.display_name, lat: +x.lat, lon: +x.lon }));
 }
 
-const SUIT_COLOR = { good: 'var(--good)', fair: 'var(--accent)', poor: '#e0a030', unsuitable: 'var(--bad)' };
+// Suitability level → CSS class (.suit-good/.suit-fair/.suit-poor/.suit-unsuitable in styles.css).
+const SUIT_CLASS = { good: 'suit-good', fair: 'suit-fair', poor: 'suit-poor', unsuitable: 'suit-unsuitable' };
 
 /**
  * Open the picker. `onTerrain({bytes, info})` is called with a GeoTIFF in the site's metric CRS and a sample-like
@@ -79,7 +80,7 @@ export async function openDhmPicker(onTerrain, initial = {}) {
   const remember = h('input', { type: 'checkbox', checked: state.remember });
   const provSel = h('select.dhm-input', ...Object.entries(PROVIDERS).map(([k, p]) => h('option', { value: k, selected: k === state.provider }, p.label)));
   const covSel = h('select.dhm-input', { 'aria-label': 'Product' }, ...DHM_COVERAGES.map((c) => h('option', { value: c.id }, c.label)));
-  const covList = h('button.btn.ghost', { type: 'button', style: 'height:30px;font-size:12px', title: 'Ask the service which products this key can use (e.g. a hydrologically adapted model)' }, 'List products');
+  const covList = h('button.btn.ghost.small', { type: 'button', title: 'Ask the service which products this key can use (e.g. a hydrologically adapted model)' }, 'List products');
   const help = h('div.dhm-help');
   const resSel = h('select.dhm-input', { 'aria-label': 'Detail' }, ...[[0.4, '0.4 m: finest (default)'], [0.8, '0.8 m (server-resampled)'], [1.6, '1.6 m: faster, large areas (server-resampled)']].map(([v, l]) => h('option', { value: v, selected: v === state.res }, l)));
   const osmChk = h('input', { type: 'checkbox', checked: state.osm });
@@ -101,7 +102,7 @@ export async function openDhmPicker(onTerrain, initial = {}) {
     coordOut.textContent = `${state.lat.toFixed(5)}°, ${state.lon.toFixed(5)}°`;
     sizeOut.textContent = `${state.size} × ${state.size} m`;
     const s = suitability(src, { cellSize: 1 });
-    srcInfo.innerHTML = `<b style="color:${SUIT_COLOR[s.level]}">${s.label}.</b> ${s.message}<br>${src.coverage} · native ${src.nativeResM ?? '?'} m · ${src.model} · ${src.verticalDatum}<br><span style="opacity:.8">Licence: ${src.licence}. ${src.attribution}</span>`;
+    srcInfo.innerHTML = `<b class="${SUIT_CLASS[s.level] || ''}">${s.label}.</b> ${s.message}<br>${src.coverage} · native ${src.nativeResM ?? '?'} m · ${src.model} · ${src.verticalDatum}<br><span class="dhm-licence">Licence: ${src.licence}. ${src.attribution}</span>`;
     note.innerHTML = `${icon('pin', 13)} ${src.note}`;
     if (isDhm()) {
       const px = Math.round(state.size / state.res) ** 2;
