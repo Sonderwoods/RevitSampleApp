@@ -530,7 +530,7 @@
                                 </Border>
                                 <StackPanel VerticalAlignment="Center">
                                     <TextBlock Text="Material palette" Style="{StaticResource T.H2}"/>
-                                    <TextBlock Text="C = cloudburst runoff coefficient · n = Manning · f = infiltration" Style="{StaticResource T.Muted}" FontSize="10.5"/>
+                                    <TextBlock Text="C = share of rain that runs off · n = roughness (Manning) · f = how fast water soaks in" Style="{StaticResource T.Muted}" FontSize="10.5" TextWrapping="Wrap"/>
                                 </StackPanel>
                             </DockPanel>
                             <Border Background="{StaticResource B.AccentSoft}" CornerRadius="8" Padding="10,7" Margin="0,0,0,8"
@@ -681,12 +681,12 @@
                     <Border Style="{StaticResource Card}">
                         <StackPanel>
                             <TextBlock Text="Ground defaults" Style="{StaticResource T.H2}" Margin="0,0,0,10"/>
-                            <TextBlock Text="Default material (unassigned cells)" Style="{StaticResource T.Label}"/>
+                            <TextBlock Text="Material for everything you have not assigned" Style="{StaticResource T.Label}"/>
                             <ComboBox ItemsSource="{Binding Materials}" SelectedItem="{Binding DefaultMaterial, Mode=TwoWay}"
                                       ItemTemplate="{StaticResource MaterialCombo}"/>
                             <TextBlock Text="Soil class" Style="{StaticResource T.Label}" Margin="0,10,0,5"/>
                             <ComboBox ItemsSource="{Binding SoilClasses}" SelectedItem="{Binding SelectedSoil, Mode=TwoWay}" DisplayMemberPath="Display"/>
-                            <TextBlock Text="Soil moisture before the rain" Style="{StaticResource T.Label}" Margin="0,10,0,5"/>
+                            <TextBlock Text="How wet is the ground before the storm?" Style="{StaticResource T.Label}" Margin="0,10,0,5"/>
                             <Border Style="{StaticResource SegHost}">
                                 <UniformGrid Columns="3">
                                     <RadioButton Style="{StaticResource Seg}" Content="Dry" GroupName="moist"
@@ -761,7 +761,7 @@
                                 <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
                                     <TextBlock Text="Climate factor" FontSize="11" Foreground="{StaticResource B.TextMuted}" VerticalAlignment="Center" Margin="0,0,8,0"/>
                                     <TextBox Width="74" MinHeight="28" Padding="8,4" Text="{Binding ClimateFactor, StringFormat=0.0#}" c:Ix.Suffix="×"
-                                             ToolTip="Multiplies all intensities (IN-8: 1.2 / 1.3 / 1.4 for T = 2 / 10 / 100 years)"/>
+                                             ToolTip="Future rain is heavier: multiplies all rain intensities. Danish practice: 1.2 / 1.3 / 1.4 for 2-, 10- and 100-year storms."/>
                                 </StackPanel>
                                 <StackPanel VerticalAlignment="Center">
                                     <TextBlock Text="{Binding CurrentRain.Name}" Style="{StaticResource T.H2}"/>
@@ -779,7 +779,7 @@
                     <Border Style="{StaticResource Card}">
                         <StackPanel>
                             <TextBlock Text="Drainage &amp; boundary" Style="{StaticResource T.H2}" Margin="0,0,0,10"/>
-                            <TextBlock Text="Sewer assumption" Style="{StaticResource T.Label}"/>
+                            <TextBlock Text="Where do roofs and paved areas drain? (sewer)" Style="{StaticResource T.Label}"/>
                             <ComboBox ItemsSource="{Binding SewerOptions}" SelectedItem="{Binding SelectedSewer, Mode=TwoWay}">
                                 <ComboBox.ItemTemplate>
                                     <DataTemplate>
@@ -845,8 +845,8 @@
                                     <TextBlock Text="&lt; 1 s" FontSize="10.5" FontWeight="Bold" Foreground="{StaticResource B.Good}"/>
                                 </Border>
                                 <StackPanel VerticalAlignment="Center">
-                                    <TextBlock Text="Instant" FontSize="15" FontWeight="SemiBold"/>
-                                    <TextBlock Text="Bluespots and flow paths for the design depth" Style="{StaticResource T.Muted}" FontSize="11"/>
+                                    <TextBlock Text="Quick check" FontSize="15" FontWeight="SemiBold"/>
+                                    <TextBlock Text="Where water collects (ponds, also called bluespots) and where it runs, for the total rain. No timing." Style="{StaticResource T.Muted}" FontSize="11" TextWrapping="Wrap"/>
                                 </StackPanel>
                             </DockPanel>
                             <Border Style="{StaticResource Inset}" Padding="10,8" Margin="0,0,0,10">
@@ -857,7 +857,7 @@
                                     </StackPanel>
                                 </CheckBox>
                             </Border>
-                            <Button Style="{StaticResource Btn.Big}" Content="Run instant" c:Ix.Glyph="&#xE768;" HorizontalAlignment="Stretch"
+                            <Button Style="{StaticResource Btn.Big}" Content="Run quick check" c:Ix.Glyph="&#xE768;" HorizontalAlignment="Stretch"
                                     Command="{Binding RunInstantCommand}"/>
                             <DockPanel Margin="2,8,0,0">
                                 <TextBlock DockPanel.Dock="Left" Text="&#xE916;" FontFamily="{StaticResource F.Icon}" FontSize="11" Foreground="{StaticResource B.TextFaint}" Margin="0,1,6,0"/>
@@ -877,8 +877,8 @@
                                     <TextBlock Text="2D shallow water" FontSize="10.5" FontWeight="Bold" Foreground="{StaticResource B.Accent}"/>
                                 </Border>
                                 <StackPanel VerticalAlignment="Center">
-                                    <TextBlock Text="Dynamic" FontSize="15" FontWeight="SemiBold"/>
-                                    <TextBlock Text="Depth, velocity and hazard over time" Style="{StaticResource T.Muted}" FontSize="11"/>
+                                    <TextBlock Text="Full simulation" FontSize="15" FontWeight="SemiBold"/>
+                                    <TextBlock Text="Water moving minute by minute: depth, speed and danger to people over time. Takes minutes; you can cancel." Style="{StaticResource T.Muted}" FontSize="11" TextWrapping="Wrap"/>
                                 </StackPanel>
                             </DockPanel>
 
@@ -888,7 +888,7 @@
                                     <ColumnDefinition Width="104"/>
                                 </Grid.ColumnDefinitions>
                                 <StackPanel VerticalAlignment="Center" Margin="0,0,10,0">
-                                    <TextBlock Text="After-rain time" FontWeight="SemiBold"/>
+                                    <TextBlock Text="Keep simulating after the rain" FontWeight="SemiBold"/>
                                     <TextBlock Text="{Binding RunLengthText}" FontSize="10.5" Foreground="{StaticResource B.TextMuted}" TextWrapping="Wrap"/>
                                 </StackPanel>
                                 <TextBox Grid.Column="1" Text="{Binding AfterRainMin, StringFormat=0}" c:Ix.Suffix="min" VerticalAlignment="Center"
@@ -896,7 +896,7 @@
                             </Grid>
 
                             <Grid>
-                                <Button Style="{StaticResource Btn.Big}" Content="Run dynamic" c:Ix.Glyph="&#xE768;" HorizontalAlignment="Stretch"
+                                <Button Style="{StaticResource Btn.Big}" Content="Run full simulation" c:Ix.Glyph="&#xE768;" HorizontalAlignment="Stretch"
                                         Command="{Binding RunDynamicCommand}" Visibility="{Binding IsDynamicRunning, Converter={StaticResource VisNot}}"/>
                                 <Button Style="{StaticResource Btn.Danger}" Content="Cancel run" c:Ix.Glyph="&#xE71A;" HorizontalAlignment="Stretch" Padding="16,11"
                                         Command="{Binding CancelDynamicCommand}" Visibility="{Binding IsDynamicRunning, Converter={StaticResource Vis}}"/>
@@ -928,7 +928,7 @@
                                             <TextBlock Text="{Binding DynEtaText}" Style="{StaticResource Metric.Value}"/>
                                         </StackPanel>
                                         <StackPanel>
-                                            <TextBlock Text="Current max depth" Style="{StaticResource Metric.Label}"/>
+                                            <TextBlock Text="Deepest so far" Style="{StaticResource Metric.Label}"/>
                                             <TextBlock Text="{Binding DynMaxDepthText}" Style="{StaticResource Metric.Value}"/>
                                         </StackPanel>
                                     </UniformGrid>
@@ -957,7 +957,7 @@
                         <StackPanel HorizontalAlignment="Center" Margin="0,8">
                             <Path Data="{StaticResource G.Bars}" Fill="{StaticResource B.TextFaint}" Width="30" Height="26" Stretch="Uniform"/>
                             <TextBlock Text="No results yet" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,10,0,2"/>
-                            <TextBlock Text="Run the instant or dynamic model to see maps here." Style="{StaticResource T.Muted}" TextAlignment="Center"/>
+                            <TextBlock Text="Run the quick check or the full simulation (Simulate step) to see maps here." Style="{StaticResource T.Muted}" TextAlignment="Center" TextWrapping="Wrap"/>
                             <Button Style="{StaticResource Btn.Accent}" Content="Go to Simulate" Margin="0,12,0,0" HorizontalAlignment="Center"
                                     Command="{Binding GoToStepCommand}" CommandParameter="3"/>
                         </StackPanel>
@@ -969,8 +969,8 @@
                             <StackPanel>
                                 <Border Style="{StaticResource SegHost}" Margin="0,0,0,10" Visibility="{Binding ShowSourceToggle, Converter={StaticResource Vis}}">
                                     <UniformGrid Columns="2">
-                                        <RadioButton Style="{StaticResource Seg}" GroupName="src" Content="Instant (M1)" IsChecked="{Binding SourceIsInstant, Mode=TwoWay}"/>
-                                        <RadioButton Style="{StaticResource Seg}" GroupName="src" Content="Dynamic (M2)" IsChecked="{Binding SourceIsDynamic, Mode=TwoWay}"/>
+                                        <RadioButton Style="{StaticResource Seg}" GroupName="src" Content="Quick check" IsChecked="{Binding SourceIsInstant, Mode=TwoWay}"/>
+                                        <RadioButton Style="{StaticResource Seg}" GroupName="src" Content="Full simulation" IsChecked="{Binding SourceIsDynamic, Mode=TwoWay}"/>
                                     </UniformGrid>
                                 </Border>
                                 <TextBlock Text="Map layer" Style="{StaticResource T.Label}"/>
@@ -1057,7 +1057,7 @@
                                 <UniformGrid Columns="2">
                                     <c:StatTile Label="Flooded volume" Value="{Binding StatVolume}" Unit="m³" Note="{Binding StatVolumeNote}" Tone="Accent"/>
                                     <c:StatTile Label="Area deeper than 10 cm" Value="{Binding StatArea}" Unit="m²" Tone="{Binding StatAreaTone}"
-                                                Note="Copenhagen 10 cm target" ToolTip="Area with water deeper than 10 cm. Above zero breaks the Copenhagen cloudburst target."/>
+                                                Note="Copenhagen 10 cm goal" ToolTip="Area with water deeper than 10 cm. Above zero breaks the Copenhagen cloudburst target."/>
                                     <c:StatTile Label="Max depth" Value="{Binding StatMaxDepth}" Unit="m"/>
                                     <c:StatTile Label="Bluespots" Value="{Binding StatBluespots}" Note="{Binding StatBluespotsNote}"/>
                                     <c:StatTile Label="Rain in" Value="{Binding StatRain}" Unit="m³" Note="{Binding StatRainNote}"/>
@@ -1077,7 +1077,7 @@
                             <StackPanel>
                                 <DockPanel>
                                     <StackPanel DockPanel.Dock="Right" HorizontalAlignment="Right">
-                                        <TextBlock Text="Mass error" FontSize="10.5" Foreground="{StaticResource B.TextMuted}" HorizontalAlignment="Right"/>
+                                        <TextBlock Text="Book-keeping error" FontSize="10.5" Foreground="{StaticResource B.TextMuted}" HorizontalAlignment="Right" ToolTip="Rain in minus water out and stored. Under 0.1 % is good."/>
                                         <TextBlock Text="{Binding MassErrorText}" FontWeight="SemiBold" Foreground="{StaticResource B.Good}" HorizontalAlignment="Right"/>
                                     </StackPanel>
                                     <StackPanel>
@@ -1110,8 +1110,8 @@
                         <!-- bluespots table -->
                         <Border Style="{StaticResource Card}" Visibility="{Binding HasBluespots, Converter={StaticResource Vis}}">
                             <StackPanel>
-                                <TextBlock Text="Largest bluespots" Style="{StaticResource T.H2}"/>
-                                <TextBlock Text="Top 10 by volume (instant model). Spill = rain depth at which it overflows." FontSize="11"
+                                <TextBlock Text="Largest ponds (bluespots)" Style="{StaticResource T.H2}"/>
+                                <TextBlock Text="Top 10 by volume (quick check). Overflows at = the rain depth at which the pond is full and spills over." FontSize="11"
                                            Foreground="{StaticResource B.TextMuted}" TextWrapping="Wrap" Margin="0,1,0,8"/>
                                 <Grid Margin="6,0,6,4">
                                     <Grid.ColumnDefinitions>
@@ -1125,7 +1125,7 @@
                                     <TextBlock Grid.Column="1" Text="VOLUME m³" Style="{StaticResource T.Overline}" HorizontalAlignment="Right"/>
                                     <TextBlock Grid.Column="2" Text="DEPTH cm" Style="{StaticResource T.Overline}" HorizontalAlignment="Right"/>
                                     <TextBlock Grid.Column="3" Text="AREA m²" Style="{StaticResource T.Overline}" HorizontalAlignment="Right"/>
-                                    <TextBlock Grid.Column="4" Text="SPILL mm" Style="{StaticResource T.Overline}" HorizontalAlignment="Right"/>
+                                    <TextBlock Grid.Column="4" Text="OVERFLOWS AT mm" Style="{StaticResource T.Overline}" HorizontalAlignment="Right"/>
                                 </Grid>
                                 <ItemsControl ItemsSource="{Binding Bluespots}" Focusable="False">
                                     <ItemsControl.ItemTemplate>
@@ -1192,7 +1192,7 @@
                     <Border Style="{StaticResource Card}">
                         <StackPanel>
                             <TextBlock Text="Design options" Style="{StaticResource T.H2}"/>
-                            <TextBlock Text="Save the latest result (dynamic if available) to compare designs." Style="{StaticResource T.Muted}" FontSize="11" Margin="0,1,0,10"/>
+                            <TextBlock Text="Save the latest result as an option (the full simulation if you ran one). Change the design, save again, then compare." Style="{StaticResource T.Muted}" FontSize="11" Margin="0,1,0,10" TextWrapping="Wrap"/>
                             <Grid>
                                 <Grid.ColumnDefinitions>
                                     <ColumnDefinition Width="*"/>
@@ -1258,7 +1258,7 @@
                                     <ComboBox ItemsSource="{Binding SavedOptions}" SelectedItem="{Binding CompareB, Mode=TwoWay}" DisplayMemberPath="Name"/>
                                 </StackPanel>
                             </Grid>
-                            <Button Style="{StaticResource Btn.Accent}" Content="Show difference" c:Ix.Glyph="&#xE8AB;" Margin="0,12,0,0" Padding="12,9"
+                            <Button Style="{StaticResource Btn.Accent}" Content="Show what changed (B vs A)" c:Ix.Glyph="&#xE8AB;" Margin="0,12,0,0" Padding="12,9"
                                     HorizontalAlignment="Stretch" Command="{Binding CompareCommand}"/>
                             <StackPanel Visibility="{Binding HasComparison, Converter={StaticResource Vis}}" Margin="0,10,0,0">
                                 <TextBlock Text="{Binding CmpTitle}" FontWeight="SemiBold" Margin="3,0,0,4"/>
@@ -1337,7 +1337,7 @@
                                         </Grid.RowDefinitions>
                                         <TextBlock Text="Total area" Style="{StaticResource Metric.Label}" Margin="0,2"/>
                                         <TextBlock Grid.Column="1" Margin="0,2"><Run Text="{Binding RetTotalArea, Mode=OneWay}" FontWeight="SemiBold"/> m²</TextBlock>
-                                        <TextBlock Grid.Row="1" Text="Reduced area (C × A)" Style="{StaticResource Metric.Label}" Margin="0,2"/>
+                                        <TextBlock Grid.Row="1" Text="Effective sealed area (C × A)" Style="{StaticResource Metric.Label}" Margin="0,2"/>
                                         <TextBlock Grid.Row="1" Grid.Column="1" Margin="0,2"><Run Text="{Binding RetReducedArea, Mode=OneWay}" FontWeight="SemiBold"/> m²</TextBlock>
                                         <TextBlock Grid.Row="2" Text="Mean runoff coefficient" Style="{StaticResource Metric.Label}" Margin="0,2"/>
                                         <TextBlock Grid.Row="2" Grid.Column="1" Margin="0,2" Text="{Binding RetMeanC}" FontWeight="SemiBold"/>
@@ -1345,7 +1345,7 @@
                                         <TextBlock Grid.Row="3" Grid.Column="1" Margin="0,2"><Run Text="{Binding RetPeak, Mode=OneWay}" FontWeight="SemiBold"/> l/s</TextBlock>
                                         <TextBlock Grid.Row="4" Text="Allowed outflow" Style="{StaticResource Metric.Label}" Margin="0,2"/>
                                         <TextBlock Grid.Row="4" Grid.Column="1" Margin="0,2"><Run Text="{Binding RetOutflow, Mode=OneWay}" FontWeight="SemiBold"/> l/s</TextBlock>
-                                        <TextBlock Grid.Row="5" Text="Critical duration" Style="{StaticResource Metric.Label}" Margin="0,2"/>
+                                        <TextBlock Grid.Row="5" Text="Longest storm to store (critical duration)" Style="{StaticResource Metric.Label}" Margin="0,2"/>
                                         <TextBlock Grid.Row="5" Grid.Column="1" Margin="0,2" Text="{Binding RetCritical}" FontWeight="SemiBold"/>
                                     </Grid>
                                 </StackPanel>

@@ -4,7 +4,7 @@
 const CACHE = 'cloudburst-v1';
 const SHELL = ['./', 'index.html', 'app.js', 'styles.css', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png',
   'engine/cloudburst-wasm.js', 'engine/engine-worker.js', 'engine/engine-client.js', 'engine/cloudburst_core.wasm',
-  'js/util.js', 'js/colors.js', 'js/raster.js', 'js/mapview.js', 'js/view3d.js', 'js/dhm.js'];
+  'js/util.js', 'js/colors.js', 'js/raster.js', 'js/mapview.js', 'js/view3d.js', 'js/dhm.js', 'js/hooks.js', 'js/terms.js'];
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => Promise.all(SHELL.map((u) => c.add(u).catch(() => null)))).then(() => self.skipWaiting()));
