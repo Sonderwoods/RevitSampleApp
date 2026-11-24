@@ -22,6 +22,8 @@ namespace Cloudburst.Revit
                 if (e == null || e is ElementType || e.ViewSpecific && !(e is CurveElement)) return false;
                 // never pick our own result geometry
                 if (RevitUtil.IsCloudburstShape(e, RevitUtil.DataPreview) || RevitUtil.IsCloudburstShape(e, RevitUtil.DataBake)) return false;
+                // a linked model stands for everything of that role inside it (RevitHost expands it)
+                if (e is RevitLinkInstance) return role == PickRole.Terrain || role == PickRole.DesignTerrain || role == PickRole.Buildings || role == PickRole.Surfaces;
                 var cat = RevitUtil.Cat(e);
                 switch (role)
                 {

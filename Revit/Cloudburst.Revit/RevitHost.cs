@@ -92,12 +92,29 @@ namespace Cloudburst.Revit
             }
             if (elements.Count == 0) return GetSummary(role);
 
-            var picks = elements.Select(e => new Pick
+            // a picked linked model stands for everything of this role inside it
+            var expanded = new List<(Element E, ElementId Link)>();
+            foreach (var e in elements)
             {
-                Id = e.Id,
-                Kind = KindOf(e),
+                if (e is RevitLinkInstance li)
+                {
+                    var ld = li.GetLinkDocument();
+                    if (ld == null) { Log($"Linked model “{li.Name}” is not loaded."); continue; }
+                    var inLink = RoleElementsIn(ld, role);
+                    if (inLink.Count == 0) Log($"Linked model “{li.Name}” has nothing to use as {role}.");
+                    expanded.AddRange(inLink.Select(x => (x, li.Id)));
+                }
+                else expanded.Add((e, null));
+            }
+            if (expanded.Count == 0) return GetSummary(role);
+
+            var picks = expanded.Select(x => new Pick
+            {
+                Id = x.E.Id,
+                LinkId = x.Link,
+                Kind = KindOf(x.E),
                 WallHeight = wallHeight,
-                MaterialId = role == PickRole.Surfaces ? (materialId ?? GuessMaterial(e)) : null
+                MaterialId = role == PickRole.Surfaces ? (materialId ?? GuessMaterial(x.E)) : null
             }).ToList();
 
             lock (_gate)
@@ -106,7 +123,7 @@ namespace Cloudburst.Revit
                 {
                     // surfaces accumulate; re-picking an element replaces its material
                     var list = Get(role);
-                    var ids = new HashSet<ElementId>(picks.Select(p => p.Id));
+                    var ids = new HashSet<ElementId>(picks.Where(p => p.LinkId == null).Select(p => p.Id));
                     list.RemoveAll(p => p.Id != null && p.LinkId == null && ids.Contains(p.Id));
                     list.AddRange(picks);
                 }
@@ -115,6 +132,39 @@ namespace Cloudburst.Revit
             }
             Log($"{role}: {GetSummary(role).Description}");
             return GetSummary(role);
+        }
+
+        private static bool IsSubdivision(Element e)
+        {
+            try { return e is Toposolid t && t.HostTopoId != null && t.HostTopoId != ElementId.InvalidElementId; } catch { return false; }
+        }
+
+        /// <summary>The elements of a (linked) document that a role uses by default.</summary>
+        private static List<Element> RoleElementsIn(Document d, PickRole role)
+        {
+            List<Element> Cat(BuiltInCategory c)
+            {
+                try { return new FilteredElementCollector(d).OfCategory(c).WhereElementIsNotElementType().ToElements().Where(e => e != null).ToList(); }
+                catch (Exception ex) { Logger.Write($"RoleElementsIn {c}: {ex.Message}"); return new List<Element>(); }
+            }
+            var r = new List<Element>();
+            switch (role)
+            {
+                case PickRole.Terrain:
+                case PickRole.DesignTerrain:
+                    r.AddRange(Cat(BuiltInCategory.OST_Toposolid).Where(e => !IsSubdivision(e)));
+                    r.AddRange(Cat(BuiltInCategory.OST_Topography));
+                    break;
+                case PickRole.Buildings:
+                    r.AddRange(Cat(BuiltInCategory.OST_Roofs));
+                    r.AddRange(Cat(BuiltInCategory.OST_Floors));
+                    r.AddRange(Cat(BuiltInCategory.OST_Walls).Where(e => e is Wall));
+                    break;
+                case PickRole.Surfaces:
+                    r.AddRange(Cat(BuiltInCategory.OST_Toposolid));
+                    break;
+            }
+            return r;
         }
 
         private PickSummary PickProbes(UIDocument uidoc)
@@ -171,9 +221,9 @@ namespace Cloudburst.Revit
         {
             switch (role)
             {
-                case PickRole.Terrain: return "Cloudburst: select terrain (Toposolid, topography, floors, imported mesh) – Finish when done";
+                case PickRole.Terrain: return "Cloudburst: select terrain (Toposolid, topography, floors, imported mesh, or a linked model) – Finish when done";
                 case PickRole.DesignTerrain: return "Cloudburst: select design terrain – Finish when done";
-                case PickRole.Buildings: return "Cloudburst: select buildings (walls, roofs, masses, families) – Finish when done";
+                case PickRole.Buildings: return "Cloudburst: select buildings (walls, roofs, masses, families, or a linked model) – Finish when done";
                 case PickRole.Surfaces: return $"Cloudburst: select surfaces (floors, toposolid sub-divisions, roofs){(materialId != null ? " as " + materialId : "")} – Finish when done";
                 case PickRole.Walls: return "Cloudburst: select kerbs/low walls (model lines or walls) – Finish when done";
                 case PickRole.BridgeCuts: return "Cloudburst: select bridge deck outlines (closed model lines or floors) – Finish when done";
@@ -324,10 +374,6 @@ namespace Cloudburst.Revit
                 return all;
             }
             ElementId L(Element e) => linkOf.TryGetValue(e, out var l) ? l : null;
-            bool IsSubdivision(Element e)
-            {
-                try { return e is Toposolid t && t.HostTopoId != null && t.HostTopoId != ElementId.InvalidElementId; } catch { return false; }
-            }
 
             var topo = Of(BuiltInCategory.OST_Toposolid);
             var terrain = topo.Where(e => !IsSubdivision(e)).ToList();

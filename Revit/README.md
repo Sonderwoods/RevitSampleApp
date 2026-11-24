@@ -56,7 +56,8 @@ The first time Revit starts with the add-in, it asks whether to load it. Choose 
 * **Linked models are always included**: every loaded Revit link (visible in that view) is read in full and placed with
   the link's position. Unloaded links are skipped with a log message.
 
-Picking by hand still works and overrides it. How each pick role works in Revit:
+Picking by hand still works and overrides it. For terrain, buildings and surfaces you can also pick a **linked model**:
+it stands for all the terrain / buildings / toposolids inside that link. How each pick role works in Revit:
 
 * **Terrain / design terrain**: select Toposolids, legacy topography, floors, DirectShapes or imported DWG/IFC meshes. The add-in uses the faces that point up.
 * **Buildings**: select walls, roofs, floors, masses, generic models, families or DirectShapes. The add-in uses the full solid geometry.
