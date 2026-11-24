@@ -87,11 +87,15 @@ export function download(name, blobOrText, type = 'application/json') {
 }
 
 let toastTimer = 0;
-export function toast(msg, kind = 'info') {
+/** Transient message. `action` = {label, fn} adds a button (e.g. Undo) and keeps the toast up longer. */
+export function toast(msg, kind = 'info', action = null) {
   let el = $('#toast');
-  if (!el) { el = h('div#toast'); document.body.append(el); }
-  el.className = `toast show ${kind}`; el.textContent = msg;
-  clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove('show'), 3200);
+  if (!el) { el = h('div#toast', { role: 'status', 'aria-live': 'polite' }); document.body.append(el); }
+  el.className = `toast show ${kind}${action ? ' has-action' : ''}`; el.textContent = msg;
+  if (action) {
+    el.append(h('button.toast-action', { onclick: () => { el.classList.remove('show'); action.fn(); } }, action.label));
+  }
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => el.classList.remove('show'), action ? 7000 : kind === 'error' ? 6000 : 3200);
 }
 
 /** Inline SVG icons (Lucide-style, stroke = currentColor). */
@@ -125,9 +129,11 @@ const P = {
   terminal: '<path d="M4 17l6-5-6-5"/><path d="M12 19h8"/>',
   swipe: '<path d="M12 3v18"/><path d="M8 8l-4 4 4 4"/><path d="M16 8l4 4-4 4"/>',
   diff: '<circle cx="9" cy="12" r="6"/><circle cx="15" cy="12" r="6"/>',
+  arrow: '<path d="M5 12h14"/><path d="M13 6l6 6-6 6"/>',
+  undo: '<path d="M9 14L4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/>',
   stop: '<rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor" stroke="none"/>',
 };
 export function icon(name, size = 16, cls = '') {
-  return `<svg class="ic ${cls}" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[name] || ''}</svg>`;
+  return `<svg class="ic ${cls}" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[name] || ''}</svg>`;
 }
 export function iconEl(name, size, cls) { const s = h('span.icwrap'); s.innerHTML = icon(name, size, cls); return s.firstChild; }

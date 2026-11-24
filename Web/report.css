@@ -1,0 +1,63 @@
+/* Report export dialog (js/report.js). Loaded on demand by report.js, after styles.css, so it uses the same design
+   tokens (:root in styles.css) and the same sheet / segmented-control / field / button rules as the location sheet.
+   Buttons here are .rpt-btn (not .btn) only so the dialog does not depend on the app's button markup. */
+.rpt-overlay { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; padding: var(--sp-5); background: var(--scrim); animation: fadein var(--dur-2) var(--ease); }
+.rpt-card {
+  width: min(720px, 100%); max-height: calc(100vh - 40px); display: flex; flex-direction: column; overflow: hidden;
+  background: var(--surface-sheet); color: var(--label); border-radius: var(--r-2xl); box-shadow: var(--shadow-sheet); animation: sheet var(--dur-3) var(--ease-out);
+}
+.rpt-card.busy { cursor: progress; }
+.rpt-card.busy .rpt-btn.primary { opacity: 0.6; pointer-events: none; }
+.rpt-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-4); padding: var(--sp-5) var(--sp-6) var(--sp-2); }
+.rpt-head h2 { font-family: var(--font-display); font-size: var(--fs-2xl); font-weight: 700; letter-spacing: var(--track-title); margin: 0; }
+.rpt-x {
+  width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; flex: none; font-size: 20px; line-height: 1; padding: 0 0 2px;
+  color: var(--label-2); background: var(--fill); border: 0; cursor: pointer; transition: background-color var(--dur-1) var(--ease), color var(--dur-1) var(--ease);
+}
+.rpt-x:hover { background: var(--fill-3); color: var(--label); }
+.rpt-body { padding: var(--sp-3) var(--sp-6) var(--sp-4); overflow: auto; display: flex; flex-direction: column; gap: 14px; }
+.rpt-row2 { display: grid; grid-template-columns: 1fr auto; gap: var(--sp-4); }
+.rpt-lab { display: flex; flex-direction: column; gap: 6px; font-size: var(--fs-sm); color: var(--label-2); font-weight: 600; }
+.rpt-sub { font-size: var(--fs-lg); font-weight: 600; margin: var(--sp-2) 0 -2px; padding-top: var(--sp-4); border-top: 0.5px solid var(--separator); color: var(--label); }
+.rpt-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sp-3) var(--sp-4); }
+.rpt-lab .rpt-in { font-weight: 400; }
+textarea.rpt-in { resize: vertical; min-height: 72px; }
+.rpt-seg { display: inline-flex; }
+.rpt-lab > .rpt-seg { align-self: flex-start; }
+.rpt-seg button { flex: 0 1 auto; padding: 4px 14px; font-size: var(--fs-md); }
+.rpt-opts { display: flex; flex-direction: column; border-radius: var(--r-md); background: var(--fill-2); overflow: hidden; }
+.rpt-opt {
+  display: grid; grid-template-columns: auto auto 1fr auto; align-items: center; gap: 10px; padding: 9px 12px; border-bottom: 0.5px solid var(--separator);
+  font-weight: 400; color: var(--label); cursor: pointer; transition: background-color var(--dur-1) var(--ease);
+}
+.rpt-opt:last-child { border-bottom: 0; }
+.rpt-opt:hover { background: var(--fill-2); }
+.rpt-optname { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rpt-letter { width: 22px; height: 22px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-weight: 700; font-size: var(--fs-xs); background: var(--opt-a-soft); color: var(--opt-a); }
+.rpt-optmeta { font-size: var(--fs-xs); color: var(--muted); white-space: nowrap; }
+.rpt-opts > .rpt-note { padding: 10px 12px; }
+.rpt-opts > .rpt-btn.small { margin: 6px 8px 8px; }
+.rpt-note { font-size: var(--fs-sm); color: var(--muted); margin: 0; line-height: 1.45; font-weight: 400; }
+.rpt-note.warn { color: var(--warn); }
+.rpt-foot { display: flex; align-items: center; justify-content: flex-end; gap: var(--sp-2); padding: var(--sp-3) var(--sp-6) var(--sp-5); border-top: 0.5px solid var(--separator); }
+.rpt-status { margin-right: auto; font-size: var(--fs-sm); color: var(--muted); }
+.rpt-status.err { color: var(--bad); }
+.rpt-btn {
+  font: inherit; font-size: var(--fs-md); font-weight: 600; min-height: var(--hit); padding: 0 16px; border-radius: var(--r-pill); border: 0; cursor: pointer;
+  color: var(--label); background: var(--fill); transition: background-color var(--dur-1) var(--ease), transform var(--dur-1) var(--ease), opacity var(--dur-1) var(--ease);
+}
+.rpt-btn:hover:not(:disabled) { background: var(--fill-3); }
+.rpt-btn:active:not(:disabled) { transform: scale(0.97); }
+.rpt-btn.small { min-height: 28px; font-size: var(--fs-sm); padding: 0 12px; align-self: flex-start; margin-top: 4px; color: var(--accent-text); background: var(--accent-soft); }
+.rpt-btn.primary { background: var(--accent); color: var(--on-accent); }
+.rpt-btn.primary:hover:not(:disabled) { background: var(--accent-hover); }
+.rpt-btn.ghost { background: var(--fill); }
+.rpt-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+@media (max-width: 560px) {
+  .rpt-overlay { padding: var(--sp-2); align-items: flex-end; }
+  .rpt-grid, .rpt-row2 { grid-template-columns: 1fr; }
+  .rpt-head, .rpt-body, .rpt-foot { padding-left: var(--sp-4); padding-right: var(--sp-4); }
+  .rpt-foot { flex-wrap: wrap; }
+  .rpt-status { flex-basis: 100%; }
+}
+@media (pointer: coarse) { .rpt-btn { min-height: 40px; } }

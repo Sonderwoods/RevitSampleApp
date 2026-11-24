@@ -9,6 +9,9 @@ const INSTANT_STATS = ['rainVolumeM3', 'effectiveVolumeM3', 'storedVolumeM3', 'o
 const BLUESPOT_F64 = ['areaM2', 'capacityM3', 'volumeM3', 'maxDepthM', 'fullDepthM', 'wetAreaM2', 'contributingAreaM2', 'spillRainMm', 'levelZ', 'spillZ', 'x', 'y'];
 const BLUESPOT_SIZE = 16 + 12 * 8;
 const MASS_F64 = ['rainM3', 'initialLossM3', 'infiltratedM3', 'sewerM3', 'boundaryOutM3', 'storedM3', 'errorFraction', 'simulatedS', 'elapsedS', 'initialWaterM3'];
+// PermeabilityStats (dynamic.rs): 5 f64 then 3 i64 = 64 bytes.
+const PERM_F64 = ['infiltratedM3', 'subbaseStoredM3', 'subbaseDrainedM3', 'subbaseCapacityM3', 'initialLossM3'];
+const PERM_I64 = ['subbaseCells', 'subbaseFullCells', 'cappedCells'];
 const RET_OUT = ['totalAreaM2', 'reducedAreaM2', 'meanC', 'peakFlowLS', 'outflowLS', 'requiredStorageM3', 'criticalDurationMin'];
 
 export class CloudburstEngine {
@@ -95,7 +98,7 @@ export class CloudburstEngine {
   // ---------- grid
   /**
    * Build a grid. `site` is either {sample: id} or a plain site description:
-   * { terrainBytes?: Uint8Array (GeoTIFF/ASC), terrainStep?, buildings?: [{xs,ys,height}], surfaces?: [{material, xs, ys}], kerbs?: [{xs,ys,height}] }
+   * { terrainBytes?: Uint8Array (GeoTIFF/ASC), terrainStep?, buildings?: [{xs,ys,height}], surfaces?: [{material, xs, ys}], kerbs?: [{xs,ys,height}], bridgeCuts?: [{xs,ys}] }
    */
   buildGrid(site, settings = {}) {
     const st = { cellSize: 1, buildingMinHeight: 5, maxCells: 1_500_000, defaultSoil: 6, defaultMaterial: -1, useRoofHeight: 0, ...settings };
@@ -119,6 +122,10 @@ export class CloudburstEngine {
       for (const s of site.surfaces || []) {
         const [px, nx] = this._f64(s.xs); const [py, ny] = this._f64(s.ys); frees.push([px, nx], [py, ny]);
         this.x.cb_site_add_region_polygon(siteH, px, py, s.xs.length, matIndex(s.material), 0, 0, -1);
+      }
+      for (const c of site.bridgeCuts || []) { // IN-4 bridge cut-outs (e.g. from OpenStreetMap, js/sources/osm.js)
+        const [px, nx] = this._f64(c.xs); const [py, ny] = this._f64(c.ys); frees.push([px, nx], [py, ny]);
+        this.x.cb_site_add_bridge_cut(siteH, px, py, c.xs.length);
       }
       for (const k of site.kerbs || []) {
         const [px, nx] = this._f64(k.xs); const [py, ny] = this._f64(k.ys); frees.push([px, nx], [py, ny]);
@@ -207,6 +214,15 @@ export class CloudburstEngine {
       const n = g.nx * g.ny; const out = {};
       const get = (w) => this._copyOut((p, l) => this.x.cb_dynamic_copy(r, w, p, l), Float32Array, n);
       out.hMax = get(0); out.vMax = get(1); out.hazard = get(2); out.hv = get(3); out.tPeak = get(4); out.hFinal = get(5);
+      // cumulative infiltration per cell (m) and peak sub-base fill (0..1, 0 = no sub-base); docs/physics-permeability.md
+      out.infiltrated = get(6); out.subbaseFillMax = get(7);
+      const pp = this._alloc(64); out.permeability = {};
+      if (this.x.cb_dynamic_permeability(r, pp)) {
+        const pv = new DataView(this._mem, pp, 64);
+        PERM_F64.forEach((k, i) => (out.permeability[k] = pv.getFloat64(i * 8, true)));
+        PERM_I64.forEach((k, i) => (out.permeability[k] = Number(pv.getBigInt64(40 + i * 8, true))));
+      }
+      this._free(pp, 64);
       const mp = this._alloc(96); this.x.cb_dynamic_mass(r, mp);
       const dv = new DataView(this._mem, mp, 96); out.mass = {};
       MASS_F64.forEach((k, i) => (out.mass[k] = dv.getFloat64(i * 8, true)));
@@ -225,6 +241,18 @@ export class CloudburstEngine {
       }
       return out;
     } finally { this.x.cb_dynamic_free(r); }
+  }
+
+  /**
+   * Cap cumulative infiltration per cell in mm (e.g. groundwater within 1 m of the surface). `capsMm` has one value per
+   * cell (row-major, like g.z); negative = no cap. An empty array clears the caps. Applies to later runs on this grid.
+   */
+  setInfiltrationCap(g, capsMm) {
+    const n = capsMm.length; const bytes = Math.max(4, n * 4); const p = this._alloc(bytes);
+    try {
+      new Float32Array(this._mem, p, n).set(capsMm);
+      if (!this.x.cb_grid_set_infiltration_cap(g.handle, p, n)) throw this._err('infiltration cap');
+    } finally { this._free(p, bytes); }
   }
 
   // ---------- retention (OUT-8)

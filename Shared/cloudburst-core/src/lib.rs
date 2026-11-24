@@ -6,6 +6,7 @@
 //! * [`grid`] — site description → uniform raster (terrain, buildings, kerbs, materials, soils).
 //! * [`instant`] — M1: priority-flood bluespots, fill–spill routing, MFD flow paths. < 1 s for 1 M cells.
 //! * [`dynamic`] — M2: local-inertial 2D shallow-water solver, rain-on-grid, Horton infiltration, sewer loss.
+//! * [`infiltration`] — per-cell modified Horton (driven by cumulative infiltration), sub-base reservoirs, F cap.
 //! * [`rain`] — indicative Danish IDF, CDS and box rain.
 //! * [`retention`] — reduced area, rational peak and required storage.
 //!
@@ -16,6 +17,7 @@ pub mod ffi;
 pub mod geometry;
 pub mod grid;
 pub mod hydro;
+pub mod infiltration;
 pub mod instant;
 pub mod palette;
 pub mod rain;
@@ -24,7 +26,7 @@ pub mod retention;
 pub mod samples;
 pub mod sys;
 
-pub use dynamic::{run_dynamic, DynamicResult, MassBalance};
+pub use dynamic::{run_dynamic, DynamicResult, MassBalance, PermeabilityStats};
 pub use grid::{build_grid, Grid, GridSettings, Site};
 pub use hydro::Scenario;
 pub use instant::{run_instant, InstantResult};

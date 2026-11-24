@@ -24,6 +24,7 @@ const handlers = {
   freeGrid({ gridId }) { const g = grids.get(gridId); if (g) { engine.freeGrid(g); grids.delete(gridId); } return true; },
   runInstant({ gridId, scenario }) { return engine.runInstant(grids.get(gridId), scenario); },
   runDynamic({ gridId, scenario, rain, probes }) { return engine.runDynamic(grids.get(gridId), scenario, rain, probes || []); },
+  setInfiltrationCap({ gridId, capsMm }) { engine.setInfiltrationCap(grids.get(gridId), capsMm); return true; },
   retention({ gridId, input }) { return engine.retention(grids.get(gridId), input); },
   rainCds({ returnPeriod, durationMin, depthMm }) { return engine.rainCds(returnPeriod, durationMin, depthMm); },
   rainBox({ depthMm, durationMin }) { return engine.rainBox(depthMm, durationMin); },

@@ -24,10 +24,25 @@ pub struct Material {
     pub use_soil_table: bool,
     #[serde(default = "yes")]
     pub compacted: bool,
+    /// Storage below the surface, mm of water per m² of surface. With `subsoil_limited` it is the sub-base reservoir of
+    /// a permeable surface (fills from infiltrated water, drains to the subsoil, see `infiltration`); without it, it is
+    /// added to the initial-loss bucket (legacy behaviour, filled by direct rain only).
     #[serde(default)]
     pub storage_mm: f64,
+    /// Informational only: design ponding depth of a rain garden / swale / basin. NOT applied by the engine — the
+    /// depression must be modelled in the (design) terrain.
     #[serde(default)]
     pub ponding_mm: f64,
+    /// Engineered permeable surface on a sub-base (permeable paving, porous asphalt, rain-garden media). The surface
+    /// rate (`infiltration_*`) only governs entry; water then passes into `storage_mm` of sub-base that drains to the
+    /// subsoil at the JB soil table's fc (compacted row unless `compacted` is false or the region says loose).
+    /// When the sub-base is full, the surface accepts no more than the subsoil drains.
+    #[serde(default)]
+    pub subsoil_limited: bool,
+    /// Whether rain on this surface is drained by the sewer (sewer initial loss / capacity). Defaults to `sealed`.
+    /// Set false for sealed surfaces that are not connected to a sewer, e.g. open water.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sewer_connected: Option<bool>,
     #[serde(default)]
     pub color: String,
     #[serde(default)]
@@ -44,6 +59,9 @@ impl Material {
     }
     pub fn infiltration(&self, clay: f64) -> f64 {
         lerp(self.infiltration_sand, self.infiltration_clay, clay)
+    }
+    pub fn is_sewer_connected(&self) -> bool {
+        self.sewer_connected.unwrap_or(self.sealed)
     }
 }
 

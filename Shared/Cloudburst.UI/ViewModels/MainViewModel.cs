@@ -140,12 +140,12 @@ namespace Cloudburst.UI.ViewModels
         {
             var defs = new (string title, string desc)[]
             {
-                ("Site", "Pick terrain, buildings and kerbs, then build the analysis grid."),
-                ("Surfaces", "Assign surface materials. They drive runoff, roughness and infiltration."),
-                ("Rain", "Choose the design rain, climate factor and sewer assumption."),
-                ("Simulate", "Instant bluespots in under a second, or a full 2D dynamic run."),
-                ("Results", "Explore depth, velocity and hazard maps in the model."),
-                ("Compare", "Save options, compare them and size retention."),
+                ("Site", "Load a sample, or pick terrain, buildings and kerbs in the model. Then build the grid."),
+                ("Surfaces", "Say what each surface is (asphalt, lawn, rain garden…). It decides how much rain soaks in and how fast water runs."),
+                ("Rain", "Pick the storm (e.g. a 100-year cloudburst), future-climate factor and where paved areas drain."),
+                ("Simulate", "Quick check: ponds and flow lines in under a second. Full simulation: water over time, speed and danger."),
+                ("Results", "See depth, speed and danger to people as maps in the model."),
+                ("Compare", "Save design options, compare A with B, and size the storage needed."),
             };
             for (int i = 0; i < defs.Length; i++)
                 Steps.Add(new StepViewModel { Index = i, Title = defs[i].title, Description = defs[i].desc, IsFirst = i == 0, IsLast = i == defs.Length - 1 });
