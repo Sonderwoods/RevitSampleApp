@@ -69,7 +69,7 @@ function captionFor(rec, t, nf) {
 /** Short terrain note for the OUT-9 caption: source and native resolution, flagged when not fit for site screening. */
 function terrainCaption(rec, t, nf) {
   const tm = rec.site && rec.site.terrainMeta; if (!tm || !(tm.sourceName || tm.nativeResM)) return null;
-  const name = (tm.sourceName || '').split(/ [–(]/)[0];
+  const name = tm.sourceId === 'upload' ? (tm.fileName ? t('uploadedFile', { f: tm.fileName }) : t('uploadedFileNoName')) : (tm.sourceName || '').split(/ [–(]/)[0];
   const lvl = tm.suitability && tm.suitability.level;
   const flag = lvl === 'unsuitable' || lvl === 'poor' ? ` – ${t('suitLabels')[lvl]}` : '';
   return `${t('terrainSource')}: ${name}${tm.nativeResM ? ` ${nf.smart(tm.nativeResM)} m` : ''}${flag}`;

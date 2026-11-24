@@ -302,7 +302,11 @@ function ensureMap() {
 /** The engine's site description: the sample (or terrain bytes) plus the user's surface swaps. */
 function siteDescription() {
   if (S.site.kind === 'synthetic') {
-    const surfaces = ((S.sampleJson && S.sampleJson.surfaces) || []).filter((r) => S.surfaceSwap[r.material]).map((r) => ({ ...r, material: S.surfaceSwap[r.material] }));
+    // Extra regions are painted after the sample's own (later regions win), so re-send every region from the first
+    // swapped one onwards in the original order: otherwise a swapped region would also cover regions drawn on top of it.
+    const regs = (S.sampleJson && S.sampleJson.surfaces) || [];
+    const first = regs.findIndex((r) => S.surfaceSwap[r.material]);
+    const surfaces = first < 0 ? [] : regs.slice(first).map((r) => (S.surfaceSwap[r.material] ? { ...r, material: S.surfaceSwap[r.material] } : r));
     return surfaces.length ? { sample: S.site.id, surfaces } : { sample: S.site.id };
   }
   // imported terrain: surfaces come from OpenStreetMap (if added); a swap replaces the whole list (later regions win)
@@ -865,8 +869,8 @@ function terrainBlock(tm) {
   out.push(h('p.step-note.terrain-src', h('b', 'Terrain: '), `${tm.sourceName} · native resolution ${res} · ${crs}`));
   const sv = tm.suitability;
   if (sv && (sv.level === 'unsuitable' || sv.level === 'poor')) {
-    out.push(h('p.step-warn.terrain-suit', { dataset: { level: sv.level }, html: `${icon('alert', 13)} <span><b>${sv.level === 'unsuitable' ? 'Not suitable for site screening.' : 'Overview only.'}</b> ${sv.message} A report made from this terrain carries this warning on its cover.</span>` }));
-  } else if (sv) out.push(h('p.step-note.terrain-suit', { dataset: { level: sv.level } }, h('b', `${sv.label}. `), sv.message));
+    out.push(h(`p.step-warn.terrain-suit.suit-${sv.level}`, { dataset: { level: sv.level }, html: `${icon('alert', 13)} <span><b>${sv.level === 'unsuitable' ? 'Not suitable for site screening.' : 'Overview only.'}</b> ${sv.message} A report made from this terrain carries this warning on its cover.</span>` }));
+  } else if (sv) out.push(h('p.step-note.terrain-suit', { dataset: { level: sv.level } }, h(`b.suit-${sv.level}`, `${sv.label}. `), sv.message));
   if (tm.osm) out.push(h('p.step-note', `${tm.osm.buildings} building${tm.osm.buildings === 1 ? '' : 's'} and ${tm.osm.surfaces} surface area${tm.osm.surfaces === 1 ? '' : 's'} from OpenStreetMap; change their materials in step 3.`));
   else if (tm.canAddOsm) {
     const b = h('button.btn.ghost.small#addOsm', { title: 'Add buildings and surfaces from OpenStreetMap', onclick: () => addOsmContext(b) }, 'Add from OpenStreetMap');

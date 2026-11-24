@@ -29,6 +29,7 @@ const check = (ok, msg) => { if (!ok) { failures++; log('  FAIL', msg); } else l
 const close = (a, b, tol = 0.051) => a != null && b != null && Math.abs(a - b) <= tol * Math.max(1, Math.abs(a));
 
 async function openSite(p, id) {
+  await p.goto('about:blank'); // fresh app: re-opening the same hash would keep the old site, options and compare view
   await p.goto(`${base}#/site/${id}`);
   await p.waitForFunction((sid) => window.__cb && window.__cb.site && window.__cb.site.id === sid && window.__cb.instant && window.__cb.retention.result, id, { timeout: 90000 });
 }

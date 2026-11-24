@@ -259,6 +259,8 @@ function kvTable(L, rows, opts = {}) {
   L.table([{ title: '', w: opts.kw ?? 58 }, { title: '' }], rows.map((r) => [cell(r[0], { color: C.muted }), cell(r[1])]), { header: false, zebra: false, size: opts.size ?? 8.5, ...opts });
 }
 
+/** Saved options are named "Option B: …" by the app; drop that prefix where the report prints its own letter. */
+const bareName = (n) => String(n || '').replace(/^Option [A-Z]:\s*/, '');
 function presetLabel(r, t) { return r ? (t('presetNames')[r.presetId] || r.presetName) : t('notGiven'); }
 function sewerLabel(s, t) { return s == null ? t('notGiven') : [t('sewerNone'), t('sewerCombined'), t('sewerSeparate')][s.mode] ?? `mode ${s.mode}`; }
 function moistLabel(m, t) { return m == null ? t('notGiven') : [t('moistDry'), t('moistMoist'), t('moistWet')][m.mode] ?? `${m.mode}`; }
@@ -446,6 +448,7 @@ function balanceSection(L, ctx, opts, letters = null) {
 /** Retention inputs and results for one or more options (one column per option). */
 function retentionSection(L, ctx, opts, letters = null) {
   const { t, nf, f } = ctx;
+  L.need(85); // table and its note together: never leave the method note alone on a page
   L.h2(t('secRetention'));
   if (!opts.some((o) => o.retention)) { L.para(t('retNotAvailable'), { color: C.muted }); return; }
   const v = (fn) => opts.map((o) => (o.retention ? fn(o.retention) : '–'));
@@ -643,7 +646,7 @@ function comparisonReport(L, ctx, model, records, internals) {
       for (let k = 0; k < perPage && p + k < opts.length; k++) {
         const i = p + k;
         const box = fitBox(ext, each, L.yBot - yStart - 22);
-        const r = mapFigure(L, ctx, { layer, rec: records[i], extent: ext, title: `${letters[i]}: ${opts[i].name}`, x: L.x0 + k * (each + gapX), y: yStart, w: box.w, maxH: box.h, legendW: 0, noLegend: true, spots: layer === 'depth' ? opts[i].instant.topBluespots : null, caption: opts[i].inputs.caption });
+        const r = mapFigure(L, ctx, { layer, rec: records[i], extent: ext, title: `${letters[i]}: ${bareName(opts[i].name)}`, x: L.x0 + k * (each + gapX), y: yStart, w: box.w, maxH: box.h, legendW: 0, noLegend: true, spots: layer === 'depth' ? opts[i].instant.topBluespots : null, caption: opts[i].inputs.caption });
         yEnd = Math.max(yEnd, r.endY);
       }
       drawLegend(L, layer, t, nf, L.x1 - legendW, yStart + 6, legendW, extraFor ? extraFor() : { paths: layer === 'depth' });
@@ -677,8 +680,8 @@ function comparisonReport(L, ctx, model, records, internals) {
   {
     const legendW = 50; const gapX = 6; const n = Math.min(opts.length, 2); const each = (L.cw - legendW - 4 - gapX * (n - 1)) / n; const yStart = L.y; let yEnd = yStart;
     for (let k = 0; k < n; k++) {
-      const box = fitBox(ext, each, 68);
-      const r = mapFigure(L, ctx, { layer: 'materials', rec: records[k], extent: ext, title: `${letters[k]}: ${opts[k].name}`, x: L.x0 + k * (each + gapX), y: yStart, w: box.w, maxH: box.h, legendW: 0, noLegend: true });
+      const box = fitBox(ext, each, 62);
+      const r = mapFigure(L, ctx, { layer: 'materials', rec: records[k], extent: ext, title: `${letters[k]}: ${bareName(opts[k].name)}`, x: L.x0 + k * (each + gapX), y: yStart, w: box.w, maxH: box.h, legendW: 0, noLegend: true });
       yEnd = Math.max(yEnd, r.endY);
     }
     const mats = new Map(); opts.forEach((o) => o.surfaces.rows.forEach((m) => { if (!mats.has(m.id)) mats.set(m.id, m); }));
