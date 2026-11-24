@@ -145,7 +145,7 @@ R = max(0,  min(C·P,  P − Ia) − sewer_loss)          C = cloudburst coeffic
 depression storage and infiltration. The initial loss stays a lower bound on the loss (runoff never exceeds P − Ia).
 The sewer loss is `sewer initial loss + capacity × 4 h` (fixed 4 h). M1 does not use the JB Horton table at all.
 
-Deviation from the PRD: the PRD writes `R = max(0, P − Ia)·C_event`. Applied literally that subtracts Ia and then
+Deviation from the original PRD (now updated to this formula): the PRD wrote `R = max(0, P − Ia)·C_event`. Applied literally that subtracts Ia and then
 applies a coefficient that already accounts for it; for green roofs it halved the runoff of the dynamic model
 (§2). See finding F5.
 
@@ -188,7 +188,7 @@ point-scale runoff coefficient; on a real site run-on and ponding raise infiltra
 | Permeable pavers | 7 | 0.30 | 0.22 | 0.22 | 0.22 | 61.3 | 100 % |
 | Porous asphalt | 2 | 0.40 | 0.12 | 0.12 | 0.12 | 69.5 | 100 % |
 | Porous asphalt | 7 | 0.40 | 0.40 | 0.40 | 0.40 | 46.3 | 100 % |
-| Permeable pavers, clogged | 2 | 0.90 | 0.87 | 0.88 | 0.88 | 6.7 | 0 % |
+| Permeable pavers, clogged (old, silted up) | 2 | 0.90 | 0.87 | 0.88 | 0.88 | 6.7 | 0 % |
 | Grass-reinforcement pavers | 2 | 0.42 | 0.39 | 0.46 | 0.46 | 40.8 | – |
 | Grass-reinforcement pavers | 7 | 0.66 | 0.57 | 0.60 | 0.60 | 29.1 | – |
 | Loose gravel | 2 | 0.60 | 0.21 | 0.33 | 0.33 | 51.6 | – |
@@ -380,9 +380,10 @@ Not validated:
 6. **Soil-table materials** lose their palette distinctions in M2 (§2).
 7. **Groundwater**: only a per-cell cap supplied by the caller; no default value, no groundwater map, no
    saturation-excess runoff or rising water table.
-8. **Infiltration-excess only**: the result is very sensitive to the design-storm peak. The CDS generator uses
-   1-minute blocks (T = 100 peak 457 mm/h after climate factor), while the PRD quotes about 231 mm/h. Which temporal
-   resolution is appropriate is not settled in this code base (see findings).
+8. **Infiltration-excess only**: infiltration depends on the design-storm peak. The CDS generator uses 1-minute
+   blocks (T = 100 peak 457 mm/h after climate factor), now also what the PRD states (F14). Measured on the school yard
+   the event totals are insensitive to the block length (a 5- or 10-minute peak changes infiltration by < 1 %); the
+   wet area over 10 cm changes by up to 9 %. Infiltration-excess is still the only runoff mechanism modelled.
 9. **Float32** per-cell state: relative accuracy of F ~10⁻⁴ over long runs at small Δt.
 10. M1's sewer loss uses a fixed 4 h for the capacity sink, regardless of rain duration.
 
@@ -397,7 +398,7 @@ or conservative; **Low** = small effect, bookkeeping or documentation.
 | F2 | **Permeable surfaces were bottomless.** Sub-base storage was added to the initial-loss bucket (filled only by rain falling on the paving, never by run-on, never draining), and the 250 mm/h surface rate was applied forever on any soil. Permeable paving or porous asphalt on clay therefore never filled; it shed water only when the rain intensity exceeded 250 mm/h, whatever the soil. | High | Fixed: sub-base reservoir draining to the JB subsoil fc (§1.5). On the school LAR sample the dynamic model's total losses (Ia + infiltration) fall from 861 to 626 m³ and boundary outflow rises from 822 to 1042 m³ (T = 100 CDS, default settings). |
 | F3 | **No clogged permeable-paving state** although the PRD asks for one (C 0.9). | Medium | Fixed: `permeable_pavers_clogged` appended to the palette (values partly unverified, §3.2). |
 | F4 | **High-groundwater cut-off missing** (PRD: zero infiltration after the first few mm). | Medium | Engine support added (per-cell cap, FFI, wasm). Not fixed end-to-end: no default value, no groundwater data, no UI. |
-| F5 | **M1 double-counted the initial loss**: `(P − Ia)·C` with C already an event coefficient. Green roofs: M1 0.65 vs M2 0.82; intensive 0.20 vs 0.39; blue-green 0.08 vs 0.27. Also subtracted the 45 mm permeable-paving sub-base before applying C 0.3. | Medium (non-conservative for green roofs) | Fixed: `min(C·P, P − Ia)` (§1.7), pinned against M2 by a test. M1 sample results change by ≤ 6 m³ (demo 376 → 380 m³, residential street 92 → 98 m³). Deviation from the PRD formula; the PRD should be updated. |
+| F5 | **M1 double-counted the initial loss**: `(P − Ia)·C` with C already an event coefficient. Green roofs: M1 0.65 vs M2 0.82; intensive 0.20 vs 0.39; blue-green 0.08 vs 0.27. Also subtracted the 45 mm permeable-paving sub-base before applying C 0.3. | Medium (non-conservative for green roofs) | Fixed: `min(C·P, P − Ia)` (§1.7), pinned against M2 by a test. M1 sample results change by ≤ 6 m³ (demo 376 → 380 m³, residential street 92 → 98 m³). The PRD (M1 step 1) now states this formula. |
 | F6 | **Open water lost 34 mm to the sewer** in the default sewer mode because "sealed" implied "sewered". | Low | Fixed: `sewerConnected` (default = sealed; false for water). |
 | F7 | Mass balance: infiltration **was** tracked exactly and **was** included in the reported error. Now also tested with infiltration, sub-bases and caps active (error 3·10⁻⁷). | – | No defect. |
 | F8 | Units (mm/h → m/s, k h⁻¹ → s⁻¹), limiting by available water (rain + ponded + run-on), moisture rule, no negative depths: correct. | – | No defect. |
@@ -406,5 +407,5 @@ or conservative; **Low** = small effect, bookkeeping or documentation.
 | F11 | `pondingMm` (rain garden 200, swale 150, basin 500 mm) is never applied. | Low | Not fixed by design (ponding must be terrain); documented in code and here. |
 | F12 | JB 9 loose fc (0) < compacted fc (0.01). | Low | Not fixed; flagged for checking against the source. |
 | F13 | Blue-green roof is a lost bucket with no throttled outlet; green roofs never drain; no recovery of capacity. | Low (single event) | Not fixed; documented (§5). |
-| F14 | Design-storm peak (1-minute CDS blocks, 457 mm/h for T = 100 × 1.4) is about twice the PRD's quoted peak; infiltration-excess results on permeable surfaces depend directly on it. Rain generation is outside this review's scope. | Medium | Not fixed; flagged for the rain owner. |
+| F14 | Design-storm peak (1-minute CDS blocks, 457 mm/h for T = 100 × 1.4) is about twice the PRD's quoted peak; infiltration-excess results on permeable surfaces depend directly on it. Rain generation is outside this review's scope. | Medium | Resolved as a PRD inconsistency, not a code defect: the 1-minute CDS is kept (Danish practice); the PRD's 151/231 mm/h could not be reproduced from the tool's IDF at any block length and now quote 252/457 mm/h with the block length, IDF and scaling spelled out (PRD "Rain events to ship"). Peaks and depths of all four presets pinned by `rain::tests::preset_peaks_and_depths_are_pinned`. Sensitivity (school yard, 2 m, T = 100): a 5- or 10-minute block changes infiltration < 1 %, outflow < 0.5 %, area > 10 cm up to 9 %. The IDF stays labelled indicative. |
 | F15 | The .NET palette class would have silently dropped any new palette field on its JSON round trip. | Low | Fixed for the new fields; pinned by a test. |

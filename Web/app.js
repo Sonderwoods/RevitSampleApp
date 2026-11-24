@@ -2,14 +2,14 @@
 // Engine: Rust core compiled to WebAssembly (engine/), the same code as the Revit/Rhino plug-in DLL.
 import { CloudburstClient } from './engine/engine-client.js';
 import { h, $, $$, clamp, debounce, fmtInt, fmt1, fmtVol, fmtArea, fmtCm, fmtClock, fmtDuration, utm32ToLatLon, fmtLatLon, download, toast, icon } from './js/util.js';
-import { DEPTH, VELOCITY, HAZARD, TPEAK, DIFF, LAYERS } from './js/colors.js';
+import { DEPTH, VELOCITY, HAZARD, TPEAK, INFIL, DIFF, LAYERS } from './js/colors.js';
 import { baseCanvas, buildingsCanvas, overlayCanvas, materialCanvas, materialsPresent, sampleAt, cellAt, differenceArray } from './js/raster.js';
 import { MapView, roundRect } from './js/mapview.js';
 import { openDhmPicker } from './js/dhm.js';
 import { addSiteSource, addExportAction, siteSources, exportActions, hooks } from './js/hooks.js';
 import { help, term, TERMS, installTips } from './js/terms.js';
 import { reportOptionMeta } from './js/report.js'; // [report-hook] registers the PDF report export action (see js/report.js)
-import { prepareSiteDesc } from './js/sources/registry.js'; // [map-sources hook] terrain decode/reproject/aggregate
+import { prepareSiteDesc, terrainMeta, fetchOsmContext, attachContext, contextOf } from './js/sources/registry.js'; // [map-sources hook] terrain decode/reproject/aggregate, metadata, OSM context
 import './js/sources/ui.js'; // [map-sources hook] registers the extra terrain sources through js/hooks.js
 
 // ------------------------------------------------------------------------------------------------ constants
@@ -142,8 +142,8 @@ function registerBuiltIns() {
     open: (ctx) => openDhmPicker(ctx.openTerrain),
   });
   addSiteSource({
-    id: 'file', order: 20, icon: 'upload', title: 'Upload a terrain file', tag: '.tif  .tiff  .asc',
-    description: 'Drop a GeoTIFF or ESRI ASCII elevation file anywhere on this page, or click to choose one.',
+    id: 'file', order: 20, icon: 'upload', title: 'Upload a terrain file', tag: '.tif  .tiff  .asc  .xyz',
+    description: 'Drop a GeoTIFF, ESRI ASCII grid or XYZ point file (heights in metres) anywhere on this page, or click to choose one.',
     open: () => $('#fileInput').click(),
   });
   addExportAction({ id: 'png', order: 10, icon: 'image', label: 'Map image (PNG)', description: 'The current map with legend and assumptions, for slides and sketches.', run: exportPNG, enabled: () => (S.grid ? true : 'Load a site first') });
@@ -305,7 +305,41 @@ function siteDescription() {
     const surfaces = ((S.sampleJson && S.sampleJson.surfaces) || []).filter((r) => S.surfaceSwap[r.material]).map((r) => ({ ...r, material: S.surfaceSwap[r.material] }));
     return surfaces.length ? { sample: S.site.id, surfaces } : { sample: S.site.id };
   }
+  // imported terrain: surfaces come from OpenStreetMap (if added); a swap replaces the whole list (later regions win)
+  const base = S.site.baseSurfaces || [];
+  if (base.some((r) => S.surfaceSwap[r.material])) return { terrainBytes: S.siteDesc.terrainBytes, surfaces: base.map((r) => (S.surfaceSwap[r.material] ? { ...r, material: S.surfaceSwap[r.material] } : r)) };
   return { terrainBytes: S.siteDesc.terrainBytes };
+}
+/** Where the terrain came from (source, resolution, CRS, suitability, attribution, OSM); null for built-in examples. */
+function terrainInfo() { return S.site && S.site.kind !== 'synthetic' ? terrainMeta(S.site.info, S.siteDesc && S.siteDesc.prepared) : null; }
+/** Rebuild the grid from the original terrain bytes (after a new aggregation method or added OSM context). */
+async function reprocessTerrain() {
+  if (!S.site || !S.site.rawTerrain) return;
+  if (S.dynRun) { S.dynRun.cancel(); S.dynRun = null; }
+  Object.assign(S, { dyn: null, source: 'instant', frame: -1, surfaceSwap: {}, matCanvas: null });
+  S.site.baseSurfaces = null;
+  S.siteDesc = { terrainBytes: S.site.rawTerrain };
+  await loadGrid({ refit: false });
+}
+function setTerrainMethod(method) {
+  const opts = { ...((S.site.info && S.site.info.terrainOptions) || {}), method };
+  S.site.info = { ...S.site.info, terrainOptions: opts };
+  const c = contextOf(S.site.rawTerrain); if (c && c.info) c.info.terrainOptions = opts; // fetched terrain carries its own info
+  reprocessTerrain();
+}
+async function addOsmContext(btn) {
+  const p = S.siteDesc && S.siteDesc.prepared; if (!p || !p.grid || !p.crs || !S.site.rawTerrain) return;
+  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Fetching OpenStreetMap…'; }
+  try {
+    const g = p.grid;
+    const osm = await fetchOsmContext({ bbox: [g.x0, g.y0, g.x0 + g.nx * g.d, g.y0 + g.ny * g.d], epsg: p.crs.epsg });
+    attachContext(S.site.rawTerrain, { osm });
+    await reprocessTerrain();
+    toast(`Added ${osm.stats.buildings} buildings and ${osm.stats.surfaces} surface areas from OpenStreetMap (© OpenStreetMap contributors).`, 'ok');
+  } catch (e) {
+    console.error(e); toast(`Could not load OpenStreetMap data: ${e.message}`, 'error');
+    if (btn) { btn.disabled = false; btn.textContent = 'Add from OpenStreetMap'; }
+  }
 }
 function gridSettings(cellSize) {
   const st = { cellSize };
@@ -326,9 +360,11 @@ async function loadGrid({ refit = true, cellSizes = null } = {}) {
   const site = S.site; const old = S.grid;
   // [map-sources hook] begin – see js/sources/registry.js prepareSiteDesc and docs/map-sources.md
   if (S.siteDesc && S.siteDesc.terrainBytes && !S.siteDesc.prepared) {
+    if (!S.site.rawTerrain) S.site.rawTerrain = S.siteDesc.terrainBytes; // original file / download, for re-aggregation and OSM
     try { S.siteDesc = await prepareSiteDesc(S.siteDesc, S.site.info); } catch (e) { lastErr = e; S.siteDesc = { ...S.siteDesc, prepared: { failed: true, warnings: [`${e.message} – trying the engine's own reader.`] } }; }
     if (S.site !== site) return;
     if (!cellSizes) for (const w of (S.siteDesc.prepared && S.siteDesc.prepared.warnings) || []) toast(w);
+    if (S.site.baseSurfaces == null) S.site.baseSurfaces = S.siteDesc.surfaces || [];
   }
   const preparedCell = S.siteDesc && S.siteDesc.prepared && S.siteDesc.prepared.cellSize;
   // [map-sources hook] end
@@ -381,7 +417,7 @@ function showSiteDrop() {
   const dz = h('div.dropzone', { tabIndex: 0, role: 'button', onclick: () => $('#fileInput').click(), onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('#fileInput').click(); } } },
     h('div.dz-icon', { html: icon('upload', 28) }),
     h('div.dz-title', 'Drop a terrain file here'),
-    h('div.dz-sub', 'or click to choose · GeoTIFF (.tif) or ESRI ASCII (.asc), heights in metres'),
+    h('div.dz-sub', 'or click to choose · GeoTIFF (.tif), ESRI ASCII (.asc) or XYZ points (.xyz), heights in metres'),
     s.dhmFile ? h('div.dz-file', { html: `${icon('file', 14)} expected file: <span class="mono">${s.dhmFile}</span>` }) : null);
   card.append(h('div.choice', h('span.choice-n', isReal ? '2' : '1'), h('div.choice-body', h('b', 'Use a terrain file you already have'), dz)));
   card.append(h('p.muted.small', h('span', 'No key and no file? '), h('a', { href: '#/site/demo_block' }, 'Open an example site instead'), '.'));
@@ -432,15 +468,16 @@ async function openFetchedTerrain({ bytes, info }) {
 }
 
 async function onTerrainFile(file) {
-  if (!/\.(tif|tiff|asc|txt|xyz|csv)$/i.test(file.name)) /* [map-sources hook] +xyz */ { toast(`“${file.name}” is not a terrain file. Use a GeoTIFF (.tif) or ESRI ASCII (.asc) elevation file.`, 'error'); return; }
+  if (!/\.(tif|tiff|asc|txt|xyz|csv)$/i.test(file.name)) /* [map-sources hook] +xyz */ { toast(`“${file.name}” is not a terrain file. Use a GeoTIFF (.tif), ESRI ASCII (.asc) or XYZ (.xyz) elevation file.`, 'error'); return; }
   const bytes = new Uint8Array(await file.arrayBuffer());
   if (S.site && S.site.kind === 'real' && !S.grid) {
+    S.site.info = { ...S.site.info, fileName: file.name };
     S.siteDesc = { terrainBytes: bytes };
     toast(`Reading ${file.name}…`);
     await loadGrid();
     return;
   }
-  const info = { id: 'custom', name: file.name.replace(/\.[^.]+$/, ''), description: `Uploaded terrain: ${file.name} (${fmt1(file.size / 1e6)} MB)`, kind: 'custom', rainPreset: 1, bbox: null, dhmFile: null, compareWith: null };
+  const info = { id: 'custom', name: file.name.replace(/\.[^.]+$/, ''), description: `Uploaded terrain: ${file.name} (${fmt1(file.size / 1e6)} MB)`, kind: 'custom', rainPreset: 1, bbox: null, dhmFile: null, compareWith: null, fileName: file.name };
   history.replaceState(null, '', '#/custom');
   await openSite('custom', { info, bytes });
 }
@@ -496,6 +533,10 @@ function activeLayerData() {
     if (L === 'depth') return { grid: g, overlay: overlayCanvas(g, depth, DEPTH_DYN), depth, min: 0.03 };
     if (L === 'velocity') return { grid: g, overlay: overlayCanvas(g, d.vMax, VELOCITY, { mask: wet }), depth: hM, min: 0.03 };
     if (L === 'hazard') return { grid: g, overlay: overlayCanvas(g, d.hazard, HAZARD, { mask: wet }), depth: hM, min: 0.03 };
+    if (L === 'infil') {
+      if (!d.infilMm) { d.infilMm = new Float32Array(d.infiltrated.length); for (let k = 0; k < d.infiltrated.length; k++) d.infilMm[k] = d.infiltrated[k] * 1000; }
+      return { grid: g, overlay: overlayCanvas(g, d.infilMm, INFIL), depth: hM, min: 0.03 };
+    }
     if (L === 'tpeak') {
       if (!d.tPeakMin) { d.tPeakMin = new Float32Array(d.tPeak.length); for (let k = 0; k < d.tPeak.length; k++) d.tPeakMin[k] = d.tPeak[k] / 60; }
       return { grid: g, overlay: overlayCanvas(g, d.tPeakMin, TPEAK, { mask: wet }), depth: hM, min: 0.03 };
@@ -619,7 +660,8 @@ function renderLegend() {
     if (S.layer === 'depth') {
       title = dyn ? (S.frame >= 0 ? `Water depth at ${fmtClock(S.dyn.frameTimes[S.frame])}` : 'Deepest water during the storm') : 'Water depth (ponds filled)';
       note = dyn ? 'Shallower than 3 cm not shown.' : 'Low spots filled with the rain that reaches them. Shallower than 1 cm not shown.';
-    } else note = 'Highest value during the storm, where water is 3 cm or deeper.';
+    } else if (S.layer === 'infil') note = 'Total soaked into the ground (incl. sub-bases) over the event. Less than 1 mm not shown.';
+    else note = 'Highest value during the storm, where water is 3 cm or deeper.';
   }
   el.append(h('div.lg-title', h('span', title, h('span.lg-unit', ` (${ramp.unit})`)), collapse));
   if (S.legendCollapsed) { el.classList.add('collapsed'); return; }
@@ -638,6 +680,11 @@ function captionText() {
   const nSwap = Object.keys(S.surfaceSwap || {}).length + (S.groundMaterial ? 1 : 0);
   if (nSwap) parts.push(`${nSwap} surface change${nSwap > 1 ? 's' : ''}`);
   const cell = S.source === 'dynamic' && S.dyn ? S.dyn.grid.dx : (S.grid ? S.grid.dx : 1);
+  const tm = terrainInfo();
+  if (tm && (tm.nativeResM != null || tm.sourceName)) {
+    const lvl = tm.suitability && tm.suitability.level;
+    parts.push(`terrain: ${tm.sourceId === 'upload' ? 'uploaded file' : tm.sourceName.split(/ [–(]/)[0]}${tm.nativeResM != null ? ` ${+(+tm.nativeResM).toFixed(2)} m` : ''}${lvl === 'unsuitable' ? ' (NOT for site screening)' : lvl === 'poor' ? ' (overview only)' : ''}`);
+  }
   parts.push(`${cell} m grid`);
   if (S.source === 'dynamic' && S.dyn) parts.push('full simulation (2D, over time)'); else parts.push('quick check (ponds filled, no timing)');
   return parts.join(' · ');
@@ -647,7 +694,11 @@ function renderCaption() {
   if (!S.grid) { el.innerHTML = ''; return; }
   const text = S.compare ? `Compare: A = ${S.compare.a.name} · B = ${S.compare.b.name}` : captionText();
   el.innerHTML = '';
-  el.append(h('span', text), h('b.warn', { title: 'For comparing design options. Not for permits or compliance.' }, 'SCREENING MODEL – not for compliance'));
+  const tm = S.compare ? null : terrainInfo();
+  el.append(h('span', text));
+  if (tm && tm.attribution.length) el.append(h('span.muted.small.caption-attr', `Data: ${tm.attribution.join(' · ')}`));
+  if (tm && tm.suitability && tm.suitability.level === 'unsuitable') el.append(h('b.warn', { title: tm.suitability.message }, 'TERRAIN TOO COARSE – not for site screening'));
+  el.append(h('b.warn', { title: 'For comparing design options. Not for permits or compliance.' }, 'SCREENING MODEL – not for compliance'));
 }
 
 // ---------- hover tooltip
@@ -679,6 +730,7 @@ function onHover(x, y, sx, sy, side) {
           if (S.frame >= 0) rows.push([`Depth @ ${fmtClock(S.dyn.frameTimes[S.frame])}`, fmtCm(S.dyn.frames[S.frame][kd])]);
           rows.push(['Deepest', fmtCm(S.dyn.hMax[kd])], ['Fastest speed', `${S.dyn.vMax[kd].toFixed(2)} m/s`],
             ['Danger to people', hazardWord(S.dyn.hazard[kd])], ['Deepest after', S.dyn.hMax[kd] >= 0.03 ? `${Math.round(S.dyn.tPeak[kd] / 60)} min` : '–']);
+          if (S.dyn.infiltrated) rows.push(['Soaked in', `${fmtInt(S.dyn.infiltrated[kd] * 1000)} mm`]);
         }
       } else if (S.instant) {
         const d = S.instant.depth[k]; rows.push(['Water depth', d >= 0.01 ? fmtCm(d) : 'dry']);
@@ -787,12 +839,14 @@ function siteSummary() {
 function siteStepBody() {
   const out = [];
   if (S.site && S.grid) {
-    const g = S.grid; const nB = S.sampleJson ? S.sampleJson.buildings.length : null;
+    const g = S.grid; const nB = S.sampleJson ? S.sampleJson.buildings.length : (S.siteDesc && S.siteDesc.buildings && S.siteDesc.buildings.length) || null;
     out.push(h('p.site-line', h('b', S.site.name), h('span.muted', [
       `${fmtInt(g.nx * g.dx)} × ${fmtInt(g.ny * g.dx)} m`, `${g.dx} m grid`,
       nB != null ? `${nB} buildings` : 'terrain only',
     ].join(' · '))));
-    if (S.site.kind !== 'synthetic') out.push(h('p.step-note', 'Terrain from a file or DHM: buildings are not in the terrain and every surface counts as one material (choose it in step 3).'));
+    const tm = terrainInfo();
+    if (S.site.kind !== 'synthetic' && !(tm && (tm.osm || tm.canAddOsm))) out.push(h('p.step-note', 'Terrain from a file or DHM: buildings are not in the terrain and every surface counts as one material (choose it in step 3).'));
+    if (tm) out.push(...terrainBlock(tm));
     // Engine notes matter for real terrain (e.g. bridge decks); for the built-in examples they are noise.
     const notes = S.site.kind === 'synthetic' ? [] : (g.warnings || []).filter((w) => !/built in/i.test(w));
     if (notes.length) out.push(h('p.step-warn', { html: `${icon('alert', 13)} ${notes.join(' ')}` }));
@@ -800,6 +854,35 @@ function siteStepBody() {
     out.push(h('p.step-note', 'This real site needs its terrain. Use the panel on the map: fetch it with a free API key, or drop a terrain file.'));
   }
   out.push(h('div.row-btns', h('a.btn.ghost.small', { href: '#/', html: `${icon('back', 13)} Change site` })));
+  return out;
+}
+
+/** Site step: terrain source, resolution, CRS, fitness for site screening, attribution, OSM context, aggregation. */
+function terrainBlock(tm) {
+  const out = [];
+  const res = tm.nativeResM != null ? `${+(+tm.nativeResM).toFixed(2)} m` : 'unknown';
+  const crs = tm.crs ? `${tm.crs.epsg ? `EPSG:${tm.crs.epsg}` : ''}${tm.crs.name ? ` ${tm.crs.name}` : ''}`.trim() : 'no coordinate system (local metres)';
+  out.push(h('p.step-note.terrain-src', h('b', 'Terrain: '), `${tm.sourceName} · native resolution ${res} · ${crs}`));
+  const sv = tm.suitability;
+  if (sv && (sv.level === 'unsuitable' || sv.level === 'poor')) {
+    out.push(h('p.step-warn.terrain-suit', { dataset: { level: sv.level }, html: `${icon('alert', 13)} <span><b>${sv.level === 'unsuitable' ? 'Not suitable for site screening.' : 'Overview only.'}</b> ${sv.message} A report made from this terrain carries this warning on its cover.</span>` }));
+  } else if (sv) out.push(h('p.step-note.terrain-suit', { dataset: { level: sv.level } }, h('b', `${sv.label}. `), sv.message));
+  if (tm.osm) out.push(h('p.step-note', `${tm.osm.buildings} building${tm.osm.buildings === 1 ? '' : 's'} and ${tm.osm.surfaces} surface area${tm.osm.surfaces === 1 ? '' : 's'} from OpenStreetMap; change their materials in step 3.`));
+  else if (tm.canAddOsm) {
+    const b = h('button.btn.ghost.small#addOsm', { title: 'Add buildings and surfaces from OpenStreetMap', onclick: () => addOsmContext(b) }, 'Add from OpenStreetMap');
+    out.push(h('p.step-note', 'Buildings are not in the terrain and every surface counts as one material (step 3). Add buildings and surfaces from OpenStreetMap: footprints become obstacles and land use sets the surface materials. Needs internet; data © OpenStreetMap contributors (ODbL).'), h('div.row-btns', b));
+  }
+  if (tm.attribution.length) out.push(h('p.muted.small.terrain-attr', `Data: ${tm.attribution.join(' · ')}`));
+  if (tm.prepared && S.site.rawTerrain) {
+    const method = (S.site.info.terrainOptions && S.site.info.terrainOptions.method) || 'mean';
+    const reproj = /^reproject/.test(tm.method || '');
+    const why = { mean: 'Mean: the average of the terrain samples in each cell – the usual choice.', min: 'Lowest: keeps gutters, ditches and narrow channels open; kerbs and low walls get lower.', max: 'Highest: keeps kerbs, low walls and ridges as barriers; narrow channels may close.', nearest: 'Nearest: one sample per cell, no smoothing – noisy with very fine data.' };
+    out.push(h('details.advanced', h('summary', 'Advanced: terrain processing'),
+      h('div.adv-body',
+        h('label.field-label', 'How terrain samples become one height per grid cell'),
+        segControl(['mean', 'min', 'max', 'nearest'].map((v) => ({ v, html: { mean: 'Mean', min: 'Lowest', max: 'Highest', nearest: 'Nearest' }[v] })), method, (v) => setTerrainMethod(v), 'terrainMethod'),
+        h('p.step-note', reproj ? 'This file was reprojected to metres, so its heights are interpolated (bilinear) and this choice does not apply.' : why[method]))));
+  }
   return out;
 }
 
@@ -814,10 +897,22 @@ function materialSelect(value, onChange, label) {
   return sel;
 }
 function surfaceGroups() {
-  const regions = (S.sampleJson && S.sampleJson.surfaces) || [];
+  const regions = (S.sampleJson && S.sampleJson.surfaces) || (S.site && S.site.baseSurfaces) || [];
   const groups = new Map();
   for (const r of regions) { const g = groups.get(r.material) || { id: r.material, n: 0, area: 0 }; g.n++; g.area += polyArea(r.xs, r.ys); groups.set(r.material, g); }
   return [...groups.values()].sort((a, b) => b.area - a.area);
+}
+/** One line, in plain words, on what a material does with rain (sub-base, soil table, surface rate). */
+function waterNote(m) {
+  if (!m) return '';
+  const row = m.compacted === false ? 'loose' : 'compacted';
+  if (m.subsoilLimited) return m.storageMm > 0
+    ? `soaks in up to ${fmtInt(Math.max(m.infiltrationSand, m.infiltrationClay))} mm/h into a ${fmtInt(m.storageMm)} mm sub-base, which drains to the subsoil at the soil's rate`
+    : `soaks in, then drains to the subsoil at the soil's rate (${row} JB soil)`;
+  if (m.useSoilTable) return `soaks in at the rate of the JB soil table (${row})`;
+  if (m.sealed) return 'sealed: runs off, or to the sewer';
+  const f = Math.max(m.infiltrationSand, m.infiltrationClay);
+  return f > 0 ? `soaks in up to ${fmtInt(f)} mm/h` : 'does not soak in';
 }
 function surfaceSummary() {
   const n = Object.keys(S.surfaceSwap).length + (S.groundMaterial ? 1 : 0);
@@ -834,7 +929,8 @@ function surfacesBlock() {
       h('span.sw', { style: { background: m ? m.color : '#888' } }),
       h('div.surf-txt',
         materialSelect(now, (v) => { if (v === g.id) delete S.surfaceSwap[g.id]; else S.surfaceSwap[g.id] = v; applyDesignChange(); }, `Material for ${orig ? orig.name : g.id}`),
-        h('span.muted', `${fmtArea(g.area)} · ${g.n} area${g.n > 1 ? 's' : ''}${S.surfaceSwap[g.id] ? ` · was ${orig ? orig.name : g.id}` : ''}`))));
+        h('span.muted', `${fmtArea(g.area)} · ${g.n} area${g.n > 1 ? 's' : ''}${S.surfaceSwap[g.id] ? ` · was ${orig ? orig.name : g.id}` : ''}`),
+        h('span.muted.small.water-note', waterNote(m)))));
   }
   const groundNow = S.groundMaterial || S.info.palette.defaultMaterial;
   const gm = mat(groundNow);
@@ -842,7 +938,8 @@ function surfacesBlock() {
     h('span.sw', { style: { background: gm ? gm.color : '#888' } }),
     h('div.surf-txt',
       materialSelect(groundNow, (v) => { S.groundMaterial = v === S.info.palette.defaultMaterial ? null : v; applyDesignChange(); }, 'Material for everything else'),
-      h('span.muted', groups.length ? 'everything else (not drawn as a surface)' : 'the whole site'))));
+      h('span.muted', groups.length ? 'everything else (not drawn as a surface)' : 'the whole site'),
+      h('span.muted.small.water-note', waterNote(gm)))));
   wrap.append(list);
   const btns = h('div.row-btns');
   btns.append(h('button.btn.ghost.small', { onclick: () => { setLayer(S.layer === 'materials' ? 'depth' : 'materials'); }, html: `${icon('layers', 13)} ${S.layer === 'materials' ? 'Show water' : 'Show surfaces on map'}` }));
@@ -1139,7 +1236,7 @@ function updateResults() {
       tile('Deepest water', Math.round(maxD * 100), 'cm'),
       tile('Fastest water', maxV.toFixed(2), 'm/s', '', `wet area ${fmtArea(wet * cell2(g))}`),
       tile('Still on site at the end', fmtVol(d.mass.storedM3), 'm³')));
-    body.append(massCard(d.mass));
+    body.append(massCard(d.mass, d.permeability));
   } else if (S.instant) {
     const st = S.instant.stats;
     body.append(verdict(st.areaOver10CmM2, st.maxDepthM, null));
@@ -1190,9 +1287,13 @@ function balanceCard(st) {
       { l: 'Runs off the site', v: st.outflowVolumeM3, c: '#7cc4f2' },
     ], st.rainVolumeM3));
 }
-function massCard(m) {
+function massCard(m, perm = null) {
   const total = m.rainM3 + (m.initialWaterM3 || 0);
   const err = Math.abs(m.errorFraction) * 100;
+  // sub-bases (permeable paving, porous asphalt, rain gardens): their water is part of "soaked into the ground"
+  const sub = perm && perm.subbaseCells > 0 ? h('div.c-foot.subbase', h('span',
+    `Of the water soaked in: ${fmtVol(perm.subbaseStoredM3)} m³ still in sub-bases, ${fmtVol(perm.subbaseDrainedM3)} m³ drained to the subsoil. `,
+    `Sub-base capacity ${fmtVol(perm.subbaseCapacityM3)} m³; `, h('b', `${fmtInt(perm.subbaseFullCells)} of ${fmtInt(perm.subbaseCells)}`), ' sub-base cells ran full.')) : null;
   return h('div.card2', h('div.c-head', h('h4', 'Where the rain went'), h('span.muted', `${fmtVol(m.rainM3)} m³ of rain`)),
     ...stackBar([
       { l: 'Wetted surfaces, filled hollows', v: m.initialLossM3, c: '#56657c' },
@@ -1201,6 +1302,7 @@ function massCard(m) {
       { l: 'Ran off the site edge', v: m.boundaryOutM3, c: '#7cc4f2' },
       { l: 'Still on site at the end', v: m.storedM3, c: '#1F78C8' },
     ], total),
+    sub,
     h('div.c-foot', 'Book-keeping error ', h('b', err < 0.001 ? '< 0.001 %' : `${err.toFixed(3)} %`), help('massError')));
 }
 
@@ -1430,6 +1532,8 @@ function exportPNG() {
   ctx.font = '500 18px Inter, system-ui, sans-serif'; ctx.fillStyle = '#8fa6c2';
   ctx.fillText(S.compare ? `A = ${S.compare.a.name}  ·  B = ${S.compare.b.name}` : captionText(), 40, y + 46);
   ctx.font = '800 18px Inter, system-ui, sans-serif'; ctx.fillStyle = '#f6a04d'; ctx.fillText('SCREENING MODEL – not for compliance', 40, y + 80);
+  const tmA = S.compare ? null : terrainInfo();
+  if (tmA && tmA.attribution.length) { ctx.font = '500 14px Inter, system-ui, sans-serif'; ctx.fillStyle = '#8fa6c2'; ctx.fillText(`Data: ${tmA.attribution.join(' · ')}`.slice(0, 220), 40, y + 106); }
   ctx.textAlign = 'right'; ctx.fillStyle = '#5d7391'; ctx.font = '500 16px Inter, system-ui, sans-serif';
   ctx.fillText(`Cloudburst ${S.info.version} · ${new Date().toISOString().slice(0, 10)}`, W - 40, y + 80);
   c.toBlob((b) => download(`cloudburst-${S.site.id}-${S.compare ? 'compare' : S.layer}.png`, b));
