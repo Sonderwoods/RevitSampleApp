@@ -24,7 +24,7 @@ namespace Cloudburst.Revit
         private sealed class Pick
         {
             public ElementId Id;
-            public ElementId LinkId;       // RevitLinkInstance when the element lives in a linked model, else null
+            public ElementId[] LinkId;     // chain of RevitLinkInstances (outermost first) when the element lives in a linked model, else null
             public object Memory;          // TriangleMesh / BuildingInput / MaterialRegion / WallLine / Polygon2
             public string MaterialId;      // Surfaces; Buildings: roof material (null = default roof)
             public double WallHeight = 0.10;
@@ -93,18 +93,19 @@ namespace Cloudburst.Revit
             if (elements.Count == 0) return GetSummary(role);
 
             // a picked linked model stands for everything of this role inside it
-            var expanded = new List<(Element E, ElementId Link)>();
+            var expanded = new List<(Element E, ElementId[] Link)>();
             foreach (var e in elements)
             {
                 if (e is RevitLinkInstance li)
                 {
-                    var ld = li.GetLinkDocument();
-                    if (ld == null) { Log($"Linked model “{li.Name}” is not loaded."); continue; }
-                    var inLink = RoleElementsIn(ld, role);
-                    if (inLink.Count == 0) Log($"Linked model “{li.Name}” has nothing to use as {role}.");
-                    expanded.AddRange(inLink.Select(x => (x, li.Id)));
+                    var links = new List<LinkSource>(); var unloaded = new List<string>();
+                    AddLink(li, new ElementId[0], links, unloaded, 0);
+                    foreach (var u in unloaded) Log($"Linked model “{u}” is not loaded.");
+                    int before = expanded.Count;
+                    foreach (var ls in links) expanded.AddRange(RoleElementsIn(ls.Doc, role).Select(x => (x, ls.Chain)));
+                    if (expanded.Count == before && links.Count > 0) Log($"Linked model “{li.Name}” has nothing to use as {role}: {Inventory(links[0].Doc)}.");
                 }
-                else expanded.Add((e, null));
+                else expanded.Add((e, (ElementId[])null));
             }
             if (expanded.Count == 0) return GetSummary(role);
 
@@ -134,6 +135,57 @@ namespace Cloudburst.Revit
             return GetSummary(role);
         }
 
+        /// <summary>A loaded linked model: its document and the chain of link instances that leads to it (nested links).</summary>
+        private sealed class LinkSource { public Document Doc; public ElementId[] Chain; public string Name; }
+
+        /// <summary>Adds a link and, recursively, the links nested in it.</summary>
+        private static void AddLink(RevitLinkInstance li, ElementId[] parent, List<LinkSource> into, List<string> unloaded, int depth)
+        {
+            Document ld = null;
+            try { ld = li.GetLinkDocument(); } catch (Exception ex) { Logger.Write("GetLinkDocument: " + ex.Message); }
+            if (ld == null) { unloaded.Add(SafeLinkName(li)); return; }
+            var chain = parent.Concat(new[] { li.Id }).ToArray();
+            into.Add(new LinkSource { Doc = ld, Chain = chain, Name = SafeLinkName(li) });
+            if (depth >= 4) return;
+            try
+            {
+                foreach (var n in new FilteredElementCollector(ld).OfClass(typeof(RevitLinkInstance)).Cast<RevitLinkInstance>())
+                    AddLink(n, chain, into, unloaded, depth + 1);
+            }
+            catch (Exception ex) { Logger.Write("Nested links: " + ex.Message); }
+        }
+
+        private static string SafeLinkName(RevitLinkInstance li) { try { return li.Name; } catch { return "link"; } }
+
+        /// <summary>Element and placement of a pick; follows the link chain for elements of linked models.</summary>
+        private static Element Resolve(Document doc, Pick p, out Transform tf)
+        {
+            tf = null;
+            if (p.Id == null || doc == null) return null;
+            if (p.LinkId == null) return doc.GetElement(p.Id);
+            var d = doc; var t = Transform.Identity;
+            foreach (var id in p.LinkId)
+            {
+                if (!(d.GetElement(id) is RevitLinkInstance li)) return null;
+                t = t.Multiply(li.GetTotalTransform());
+                d = li.GetLinkDocument();
+                if (d == null) return null;
+            }
+            tf = t;
+            return d.GetElement(p.Id);
+        }
+
+        /// <summary>What a document holds that could matter, for "nothing found" messages.</summary>
+        private static string Inventory(Document d)
+        {
+            int N(BuiltInCategory c)
+            {
+                try { return new FilteredElementCollector(d).OfCategory(c).WhereElementIsNotElementType().GetElementCount(); } catch { return 0; }
+            }
+            return $"{N(BuiltInCategory.OST_Toposolid)} toposolids, {N(BuiltInCategory.OST_Topography)} topography, {N(BuiltInCategory.OST_Roofs)} roofs, {N(BuiltInCategory.OST_Floors)} floors, "
+                 + $"{N(BuiltInCategory.OST_Walls)} walls, {N(BuiltInCategory.OST_Mass)} masses, {N(BuiltInCategory.OST_GenericModel)} generic models, {N(BuiltInCategory.OST_Site)} site components";
+        }
+
         private static bool IsSubdivision(Element e)
         {
             try { return e is Toposolid t && t.HostTopoId != null && t.HostTopoId != ElementId.InvalidElementId; } catch { return false; }
@@ -159,6 +211,8 @@ namespace Cloudburst.Revit
                     r.AddRange(Cat(BuiltInCategory.OST_Roofs));
                     r.AddRange(Cat(BuiltInCategory.OST_Floors));
                     r.AddRange(Cat(BuiltInCategory.OST_Walls).Where(e => e is Wall));
+                    r.AddRange(Cat(BuiltInCategory.OST_Mass));
+                    r.AddRange(Cat(BuiltInCategory.OST_GenericModel));
                     break;
                 case PickRole.Surfaces:
                     r.AddRange(Cat(BuiltInCategory.OST_Toposolid));
@@ -339,20 +393,21 @@ namespace Cloudburst.Revit
             var view = uidoc.ActiveView;
             bool byView = view != null && !view.IsTemplate && (view is View3D || view is ViewPlan);
 
-            // the model itself (link = null) plus every loaded linked model (visible in the view, when reading by view)
-            var sources = new List<(Document Doc, ElementId Link)> { (doc, null) };
+            // the model itself (link = null) plus every loaded linked model (visible in the view, when reading by view),
+            // including links nested inside links
+            var links = new List<LinkSource>(); var unloaded = new List<string>();
             try
             {
                 var lc = byView ? new FilteredElementCollector(doc, view.Id) : new FilteredElementCollector(doc);
-                foreach (var li in lc.OfClass(typeof(RevitLinkInstance)).Cast<RevitLinkInstance>())
-                {
-                    var ld = li.GetLinkDocument();
-                    if (ld != null) sources.Add((ld, li.Id)); else Log($"Linked model “{li.Name}” is not loaded and was skipped.");
-                }
+                foreach (var li in lc.OfClass(typeof(RevitLinkInstance)).Cast<RevitLinkInstance>().ToList())
+                    AddLink(li, new ElementId[0], links, unloaded, 0);
             }
             catch (Exception ex) { Logger.Write("Detect links: " + ex.Message); }
+            foreach (var u in unloaded) Log($"Linked model “{u}” is not loaded and was skipped.");
+            var sources = new List<(Document Doc, ElementId[] Link)> { (doc, null) };
+            sources.AddRange(links.Select(l => (l.Doc, l.Chain)));
             int linkCount = sources.Count - 1;
-            var linkOf = new Dictionary<Element, ElementId>(); // element of a linked model → its link instance
+            var linkOf = new Dictionary<Element, ElementId[]>(); // element of a linked model → its chain of link instances
 
             List<Element> Of(BuiltInCategory cat)
             {
@@ -373,7 +428,7 @@ namespace Cloudburst.Revit
                 }
                 return all;
             }
-            ElementId L(Element e) => linkOf.TryGetValue(e, out var l) ? l : null;
+            ElementId[] L(Element e) => linkOf.TryGetValue(e, out var l) ? l : null;
 
             var topo = Of(BuiltInCategory.OST_Toposolid);
             var terrain = topo.Where(e => !IsSubdivision(e)).ToList();
@@ -382,17 +437,27 @@ namespace Cloudburst.Revit
             var roofs = Of(BuiltInCategory.OST_Roofs);
             var floors = Of(BuiltInCategory.OST_Floors);
             var walls = Of(BuiltInCategory.OST_Walls).Where(e => e is Wall).ToList();
+            // context buildings are often modelled as masses or generic models (anything lower than the building minimum height is ignored)
+            var masses = Of(BuiltInCategory.OST_Mass);
+            masses.AddRange(Of(BuiltInCategory.OST_GenericModel));
 
             if (terrain.Count == 0)
             {
-                Log(byView ? $"No toposolid or topography is visible in the view “{view.Name}” or its {linkCount} linked model(s)." : $"The model and its {linkCount} linked model(s) have no toposolid or topography.");
-                return null;
+                var lines = new List<string> { byView ? $"No toposolid or topography found in the view “{view.Name}” or its linked models." : "No toposolid or topography found in the model or its linked models." };
+                lines.Add($"This model: {Inventory(doc)}.");
+                foreach (var l in links.Take(8)) lines.Add($"Link “{l.Name}”: {Inventory(l.Doc)}.");
+                if (unloaded.Count > 0) lines.Add("Not loaded: " + string.Join(", ", unloaded.Take(8)) + ".");
+                if (links.Count == 0 && unloaded.Count == 0) lines.Add(byView ? "No linked model is visible in this view." : "The model has no linked models.");
+                lines.Add("If the terrain is another kind of element, pick it with “Existing terrain ▸ Pick”.");
+                foreach (var l in lines) Log(l);
+                throw new InvalidOperationException(string.Join("\n", lines));
             }
 
             var buildings = new List<Pick>();
             buildings.AddRange(roofs.Select(e => new Pick { Id = e.Id, LinkId = L(e), Kind = "Roof", MaterialId = GuessMaterial(e, false) }));
             buildings.AddRange(floors.Select(e => new Pick { Id = e.Id, LinkId = L(e), Kind = "Floor", MaterialId = GuessMaterial(e, false) }));
             buildings.AddRange(walls.Select(e => new Pick { Id = e.Id, LinkId = L(e), Kind = "Wall" }));
+            buildings.AddRange(masses.Select(e => new Pick { Id = e.Id, LinkId = L(e), Kind = "Mass" }));
 
             // base terrain first, sub-divisions after it so they win where they cover
             var surfaces = new List<Pick>();
@@ -409,7 +474,7 @@ namespace Cloudburst.Revit
             }
 
             string scope = (byView ? $"view “{view.Name}”" : "whole model") + (linkCount > 0 ? $" + {linkCount} linked model{(linkCount == 1 ? "" : "s")}" : "");
-            string found = $"{terrain.Count} terrain, {roofs.Count} roofs, {floors.Count} floors, {walls.Count} walls, {subdivisions.Count} sub-divisions ({scope})";
+            string found = $"{terrain.Count} terrain, {roofs.Count} roofs, {floors.Count} floors, {walls.Count} walls, {masses.Count} masses / generic models, {subdivisions.Count} sub-divisions ({scope})";
             Log("Site read from the Revit model: " + found + ".");
             return found;
         }
@@ -431,15 +496,7 @@ namespace Cloudburst.Revit
                 tf = null;
                 if (p.Id == null || doc == null) return null;
                 Element e = null;
-                try
-                {
-                    if (p.LinkId == null) e = doc.GetElement(p.Id);
-                    else if (doc.GetElement(p.LinkId) is RevitLinkInstance link)
-                    {
-                        e = link.GetLinkDocument()?.GetElement(p.Id);
-                        tf = link.GetTotalTransform();
-                    }
-                }
+                try { e = Resolve(doc, p, out var placed); tf = placed; }
                 catch (Exception ex) { Logger.Write("Linked element: " + ex.Message); }
                 if (e == null) missing++;
                 return e;

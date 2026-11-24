@@ -46,7 +46,7 @@ The first time Revit starts with the add-in, it asks whether to load it. Choose 
 **Use the Revit model** (button at the top of *Site geometry*) fills in the site without picking:
 
 * **Terrain**: every Toposolid (not its sub-divisions) and legacy topography.
-* **Buildings**: roofs, floors and walls. Roofs and floors give the building tops, walls the outline. Parts lower than the
+* **Buildings**: roofs, floors and walls, plus masses and generic models (context buildings). Roofs and floors give the building tops, walls the outline. Parts lower than the
   *building minimum height* above the terrain (ground slabs, low walls) are not treated as buildings.
 * **Surface materials**: the Revit material of the top face of each Toposolid and sub-division, and of each roof
   (e.g. a green roof), matched to the Cloudburst palette by name (English and Danish keywords). So the workflow is:
@@ -54,7 +54,8 @@ The first time Revit starts with the add-in, it asks whether to load it. Choose 
 * It reads what is visible in the active 3D or plan view (phases, design options, hidden elements and section boxes are
   respected). From any other view it reads the whole model.
 * **Linked models are always included**: every loaded Revit link (visible in that view) is read in full and placed with
-  the link's position. Unloaded links are skipped with a log message.
+  the link's position, including links nested inside links. Unloaded links are skipped with a log message.
+* If no terrain is found, the message lists what the model and each link contain (toposolids, topography, masses …).
 
 Picking by hand still works and overrides it. For terrain, buildings and surfaces you can also pick a **linked model**:
 it stands for all the terrain / buildings / toposolids inside that link. How each pick role works in Revit:
