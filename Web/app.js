@@ -6,6 +6,7 @@ import { DEPTH, VELOCITY, HAZARD, TPEAK, DIFF, LAYERS } from './js/colors.js';
 import { baseCanvas, buildingsCanvas, overlayCanvas, materialCanvas, materialsPresent, sampleAt, cellAt, differenceArray } from './js/raster.js';
 import { MapView, roundRect } from './js/mapview.js';
 import { openDhmPicker } from './js/dhm.js';
+import { prepareSiteDesc } from './js/sources/registry.js'; // [map-sources hook] terrain decode/reproject/aggregate
 
 // ------------------------------------------------------------------------------------------------ constants
 const LOCATIONS = {
@@ -260,7 +261,15 @@ async function loadGrid() {
   setBusy(true, 'Building grid…');
   let grid = null, lastErr = null;
   const site = S.site;
-  for (const cellSize of S.site.kind === 'synthetic' ? [1] : [1, 2, 4, 8]) {
+  // [map-sources hook] begin – see js/sources/registry.js prepareSiteDesc and docs/map-sources.md
+  if (S.siteDesc && S.siteDesc.terrainBytes && !S.siteDesc.prepared) {
+    try { S.siteDesc = await prepareSiteDesc(S.siteDesc, S.site.info); } catch (e) { lastErr = e; S.siteDesc = { ...S.siteDesc, prepared: { failed: true, warnings: [`${e.message} – trying the engine's own reader.`] } }; }
+    if (S.site !== site) return;
+    for (const w of (S.siteDesc.prepared && S.siteDesc.prepared.warnings) || []) toast(w);
+  }
+  const preparedCell = S.siteDesc && S.siteDesc.prepared && S.siteDesc.prepared.cellSize;
+  // [map-sources hook] end
+  for (const cellSize of S.site.kind === 'synthetic' ? [1] : preparedCell ? [preparedCell] : [1, 2, 4, 8]) {
     try {
       grid = await S.cb.buildGrid(S.siteDesc, { cellSize });
       if (grid.nx * grid.ny > 900000 && cellSize < 8) { S.cb.freeGrid(grid); grid = null; continue; }
@@ -272,7 +281,8 @@ async function loadGrid() {
   S.grid = grid;
   $('#siteDrop').classList.add('hidden');
   const base = baseCanvas(grid, S.info.palette);
-  S.scene = { grid, base, buildingsVec: S.sampleJson ? S.sampleJson.buildings : null, buildingsRaster: S.sampleJson ? null : buildingsCanvas(grid) };
+  const vecB = S.sampleJson ? S.sampleJson.buildings : (S.siteDesc.buildings && S.siteDesc.buildings.length ? S.siteDesc.buildings : null); // [map-sources hook] OSM footprints
+  S.scene = { grid, base, buildingsVec: vecB, buildingsRaster: vecB ? null : buildingsCanvas(grid) };
   map.setScenes([S.scene]); map.fit();
   if (S.view3d && S.v3) S.v3.setSite(grid, base, S.scene.buildingsVec);
   renderLeft(); renderRight(); renderMapChrome();

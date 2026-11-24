@@ -139,9 +139,15 @@ pub fn read_geotiff(path: &str) -> Result<Raster, String> {
 fn decode_tiff<R: std::io::Read + std::io::Seek>(reader: R, path: &str) -> Result<Raster, String> {
     let mut dec = Decoder::new(reader).map_err(|e| format!("{path}: {e}"))?.with_limits(tiff::decoder::Limits::unlimited());
     let (w, h) = dec.dimensions().map_err(|e| e.to_string())?;
-    let scale = dec.get_tag_f64_vec(Tag::Unknown(33550)).ok();
-    let tie = dec.get_tag_f64_vec(Tag::Unknown(33922)).ok();
-    let nodata = dec.get_tag_ascii_string(Tag::Unknown(42113)).ok().and_then(|s| s.trim_matches(char::from(0)).trim().parse::<f32>().ok());
+    // The tiff crate maps the GeoTIFF tag numbers to NAMED variants when it reads a file, so they must be looked up by
+    // name: `Tag::Unknown(33550)` never matches and silently dropped all georeferencing and NoData (fixed 2026-11).
+    let scale = dec.get_tag_f64_vec(Tag::ModelPixelScaleTag).ok();
+    let tie = dec.get_tag_f64_vec(Tag::ModelTiepointTag).ok();
+    let transform = dec.get_tag_f64_vec(Tag::ModelTransformationTag).ok();
+    let geokeys = dec.get_tag_u32_vec(Tag::GeoKeyDirectoryTag).ok();
+    let nodata = dec.get_tag_ascii_string(Tag::GdalNodata).ok().and_then(|s| s.trim_matches(char::from(0)).trim().parse::<f32>().ok());
+    // GTRasterTypeGeoKey (1025) = 2: tie point refers to the pixel CENTRE (PixelIsPoint).
+    let pixel_is_point = geokeys.as_ref().map(|g| g.chunks(4).skip(1).any(|k| k.len() == 4 && k[0] == 1025 && k[1] == 0 && k[3] == 2)).unwrap_or(false);
     let img = dec.read_image().map_err(|e| format!("{path}: {e}"))?;
     let data: Vec<f32> = match img {
         DecodingResult::F32(v) => v,
@@ -154,13 +160,39 @@ fn decode_tiff<R: std::io::Read + std::io::Seek>(reader: R, path: &str) -> Resul
         _ => return Err(format!("{path}: unsupported sample format")),
     };
     let (nx, ny) = (w as usize, h as usize);
-    let (dx, dy) = scale.as_ref().map(|s| (s[0], s.get(1).copied().unwrap_or(s[0]))).unwrap_or((1.0, 1.0));
-    let (x0, y_top) = tie.as_ref().filter(|t| t.len() >= 6).map(|t| (t[3] - t[0] * dx, t[4] + t[1] * dy)).unwrap_or((0.0, ny as f64 * dy));
+    let (mut dx, mut dy) = scale.as_ref().map(|s| (s[0], s.get(1).copied().unwrap_or(s[0]))).unwrap_or((1.0, 1.0));
+    let (mut x0, mut y_top) = tie.as_ref().filter(|t| t.len() >= 6).map(|t| (t[3] - t[0] * dx, t[4] + t[1] * dy)).unwrap_or((0.0, ny as f64 * dy));
+    let mut south_up = false;
+    if let Some(m) = transform.as_ref().filter(|m| m.len() >= 16) {
+        if m[1].abs() > 1e-12 || m[4].abs() > 1e-12 {
+            return Err(format!("{path}: rotated GeoTIFFs are not supported (warp it north-up first)"));
+        }
+        dx = m[0];
+        dy = -m[5];
+        x0 = m[3];
+        y_top = m[7];
+    }
+    if dy < 0.0 {
+        // south-up file: origin is the south edge
+        dy = -dy;
+        y_top += dy * ny as f64;
+        south_up = true;
+    }
+    if pixel_is_point {
+        x0 -= dx / 2.0;
+        y_top += dy / 2.0;
+    }
     if data.len() < nx * ny {
         return Err(format!("{path}: multi-band or tiled layout not supported ({} values)", data.len()));
     }
     let bands = data.len() / (nx * ny);
-    let data: Vec<f32> = if bands > 1 { data.into_iter().step_by(bands).take(nx * ny).collect() } else { data };
+    let mut data: Vec<f32> = if bands > 1 { data.into_iter().step_by(bands).take(nx * ny).collect() } else { data };
+    if south_up {
+        let rows: Vec<Vec<f32>> = data.chunks(nx).rev().map(|r| r.to_vec()).collect();
+        data = rows.concat();
+    }
+    // GDAL_NODATA "nan": NaN never compares equal, and `valid` already rejects NaN, so drop the tag value.
+    let nodata = nodata.filter(|v| !v.is_nan());
     Ok(Raster { nx, ny, x0, y_top, dx, dy, data, nodata })
 }
 
@@ -181,6 +213,28 @@ pub fn write_ascii(path: &Path, nx: usize, ny: usize, x0: f64, y0: f64, dx: f64,
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Fixtures from tools/make_terrain_fixtures.py: 37×23 px, 0.4 m, origin (724410, 6179430), z = 10 + 0.1c − 0.05r.
+    #[test]
+    fn geotiff_georeferencing_and_nodata_are_read() {
+        let dir = concat!(env!("CARGO_MANIFEST_DIR"), "/../../samples/fixtures/");
+        for (f, nodata) in [("strip_f32_le.tif", true), ("tiled_deflate_pred3_be.tif", false), ("bigtiff_tiled_packbits_f64.tif", true), ("feet_transform_southup.tif", true)] {
+            let p = format!("{dir}{f}");
+            if !Path::new(&p).exists() {
+                continue;
+            }
+            let r = read_geotiff(&p).unwrap();
+            assert!((r.dx - if f.starts_with("feet") { 0.4 / 0.3048 } else { 0.4 }).abs() < 1e-9, "{f} dx {}", r.dx);
+            let unit = if f.starts_with("feet") { 0.3048 } else { 1.0 };
+            assert!((r.x0 * unit - 724410.0).abs() < 1e-6, "{f} x0 {}", r.x0); // PixelIsPoint is shifted back to the corner
+            assert!((r.y_top * unit - 6179430.0).abs() < 1e-6, "{f} y_top {}", r.y_top);
+            assert!((r.data[5 * 37 + 7] * unit as f32 - 10.45).abs() < 1e-3, "{f} z");
+            if nodata && f.starts_with("strip") {
+                assert_eq!(r.nodata, Some(-9999.0));
+                assert!(!r.valid(r.data[2 * 37 + 3]));
+            }
+        }
+    }
     #[test]
     fn ascii_roundtrip_and_mesh() {
         let dir = std::env::temp_dir().join("cb_raster_test");
