@@ -19,6 +19,8 @@ An older **Dataforsyningen token** (dataforsyningen.dk → *Mine tokens*) also w
 
 Notes:
 * DHM/Terræn has buildings removed and **bridge decks included**: add bridge cut-outs where roads pass under bridges.
+  In the web/desktop app, tick **3D buildings** in the picker to add OpenStreetMap footprints with heights measured from
+  DHM/Overflade (same key).
 * The browser version on GitHub Pages calls Datafordeler directly. If your browser blocks the request (CORS), use the
   desktop app or run the web app locally (`Cloudburst Web.bat`), which download without that restriction.
 * Check the data licence before redistributing downloaded terrain files.

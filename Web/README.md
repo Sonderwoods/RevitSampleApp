@@ -36,7 +36,22 @@ Datafordeler/Dataforsyningen, so the browser's CORS rules don't block the downlo
 On the start page, click **Pick a location**:
 1. Search an address (OpenStreetMap search) or click the map to place the square, then pick its size.
 2. Paste a **Datafordeler API key** or a **Dataforsyningen token**. If you tick "Remember", it is kept only in your browser.
-3. Click **Fetch terrain & open**. DHM/Terræn is downloaded as a GeoTIFF and opened as a new site.
+3. Leave **3D buildings** ticked (default) to put the buildings back on the terrain (see below).
+4. Click **Fetch terrain & open**. DHM/Terræn is downloaded as a GeoTIFF and opened as a new site.
+
+### 3D buildings
+
+DHM/Terræn has buildings removed, so on its own, water flows straight through houses. With **3D buildings** on, the
+import also fetches:
+
+* **Footprints** from OpenStreetMap (Overpass API, no key needed). Danish OSM buildings largely come from the GeoDanmark/BBR imports.
+* **DHM/Overflade** (the surface model with roofs) from the same WCS and key. Each building's height is the 90th percentile
+  of *Overflade − Terræn* inside its footprint. If the surface model isn't available, heights come from the OSM `height` /
+  `building:levels` tags, or 8 m otherwise. A toast tells you how many heights were measured, tagged or defaulted.
+
+Buildings then block flow in the instant and dynamic models and show in 2D and 3D (hover shows the height). Roof-only
+structures (`building=roof`, carports) and underground buildings are skipped, and footprints are clipped to the site.
+Downloading the surface model doubles the WCS download size.
 
 Real-site cards (Tåsinge Plads, …) also have a **Fetch terrain with API key** button. The key is never written to
 disk by the server and is not logged.

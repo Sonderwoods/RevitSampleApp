@@ -139,9 +139,9 @@ pub fn read_geotiff(path: &str) -> Result<Raster, String> {
 fn decode_tiff<R: std::io::Read + std::io::Seek>(reader: R, path: &str) -> Result<Raster, String> {
     let mut dec = Decoder::new(reader).map_err(|e| format!("{path}: {e}"))?.with_limits(tiff::decoder::Limits::unlimited());
     let (w, h) = dec.dimensions().map_err(|e| e.to_string())?;
-    let scale = dec.get_tag_f64_vec(Tag::Unknown(33550)).ok();
-    let tie = dec.get_tag_f64_vec(Tag::Unknown(33922)).ok();
-    let nodata = dec.get_tag_ascii_string(Tag::Unknown(42113)).ok().and_then(|s| s.trim_matches(char::from(0)).trim().parse::<f32>().ok());
+    let scale = dec.get_tag_f64_vec(Tag::ModelPixelScaleTag).ok();
+    let tie = dec.get_tag_f64_vec(Tag::ModelTiepointTag).ok();
+    let nodata = dec.get_tag_ascii_string(Tag::GdalNodata).ok().and_then(|s| s.trim_matches(char::from(0)).trim().parse::<f32>().ok());
     let img = dec.read_image().map_err(|e| format!("{path}: {e}"))?;
     let data: Vec<f32> = match img {
         DecodingResult::F32(v) => v,
@@ -197,5 +197,26 @@ mod tests {
         assert_eq!(m.tris.len() / 3, 4 * 3 * 2);
         let b = m.bounds();
         assert!((b.min_x - 1000.2).abs() < 1e-9);
+    }
+
+    /// GeoTIFF georeferencing must be read: tiff 0.9 maps 33550/33922/42113 to named tags, so `Tag::Unknown(..)` never matched
+    /// and every DHM raster opened at (0, 0) with 1 m pixels.
+    #[test]
+    fn geotiff_georeference_and_nodata() {
+        use tiff::encoder::{colortype::Gray32Float, TiffEncoder};
+        let mut buf = std::io::Cursor::new(Vec::new());
+        {
+            let mut enc = TiffEncoder::new(&mut buf).unwrap();
+            let mut img = enc.new_image::<Gray32Float>(3, 2).unwrap();
+            img.encoder().write_tag(Tag::ModelPixelScaleTag, &[0.4f64, 0.4, 0.0][..]).unwrap();
+            img.encoder().write_tag(Tag::ModelTiepointTag, &[0.0f64, 0.0, 0.0, 724410.0, 6179430.0, 0.0][..]).unwrap();
+            img.encoder().write_tag(Tag::GdalNodata, "-9999").unwrap();
+            img.write_data(&[1.0f32, 2.0, 3.0, 4.0, 5.0, -9999.0]).unwrap();
+        }
+        let r = from_bytes(buf.get_ref(), "t.tif").unwrap();
+        assert_eq!((r.nx, r.ny), (3, 2));
+        assert!((r.x0 - 724410.0).abs() < 1e-9 && (r.y_top - 6179430.0).abs() < 1e-9);
+        assert!((r.dx - 0.4).abs() < 1e-12 && (r.dy - 0.4).abs() < 1e-12);
+        assert_eq!(r.nodata, Some(-9999.0));
     }
 }

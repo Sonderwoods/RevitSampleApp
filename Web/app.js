@@ -6,6 +6,7 @@ import { DEPTH, VELOCITY, HAZARD, TPEAK, DIFF, LAYERS } from './js/colors.js';
 import { baseCanvas, buildingsCanvas, overlayCanvas, materialCanvas, materialsPresent, sampleAt, cellAt, differenceArray } from './js/raster.js';
 import { MapView, roundRect } from './js/mapview.js';
 import { openDhmPicker } from './js/dhm.js';
+import { assignHeights } from './js/buildings.js';
 
 // ------------------------------------------------------------------------------------------------ constants
 const LOCATIONS = {
@@ -232,8 +233,7 @@ async function openSite(id, custom = null) {
     S.siteDesc = { sample: id };
     await loadGrid();
   } else if (custom) {
-    S.siteDesc = { terrainBytes: custom.bytes };
-    await loadGrid();
+    await setFetchedSite(custom.bytes, custom.buildings);
   } else {
     showSiteDrop();
     tryAutoLoadDhm(info);
@@ -307,7 +307,7 @@ function showSiteDrop() {
     const [x0, y0, x1, y1] = s.bbox; const ll = utm32ToLatLon((x0 + x1) / 2, (y0 + y1) / 2);
     card.append(h('button.btn.primary.fetch-dhm', {
       html: `${icon('download', 15)} Fetch terrain with API key`,
-      onclick: () => openDhmPicker(async ({ bytes }) => { S.siteDesc = { terrainBytes: bytes }; await loadGrid(); },
+      onclick: () => openDhmPicker(async ({ bytes, buildings }) => { await setFetchedSite(bytes, buildings); },
         { lat: ll.lat, lon: ll.lon, size: Math.round(x1 - x0), name: S.site.name }),
     }));
   }
@@ -343,9 +343,45 @@ function setupGlobalDrop() {
   });
 }
 
-async function openFetchedTerrain({ bytes, info }) {
+async function openFetchedTerrain({ bytes, buildings, info }) {
   history.replaceState(null, '', '#/custom');
-  await openSite('custom', { info, bytes });
+  await openSite('custom', { info, bytes, buildings });
+}
+
+/**
+ * Terrain from the DHM picker, optionally with buildings ({footprints, dsmBytes, dsmError}). Heights are measured as
+ * DHM/Overflade − DHM/Terræn inside each footprint, using the engine to read both GeoTIFFs onto the same grid.
+ */
+async function setFetchedSite(bytes, buildings) {
+  S.sampleJson = null;
+  S.siteDesc = { terrainBytes: bytes };
+  if (buildings && buildings.footprints.length) {
+    const site = S.site;
+    setBusy(true, `Measuring ${buildings.footprints.length} building heights…`);
+    let dtm = null, dsm = null;
+    try {
+      if (buildings.dsmBytes) {
+        for (const cellSize of [1, 2, 4]) {
+          try {
+            dtm = await S.cb.buildGrid({ terrainBytes: bytes }, { cellSize, maxCells: 2_500_000 });
+            dsm = await S.cb.buildGrid({ terrainBytes: buildings.dsmBytes }, { cellSize, maxCells: 2_500_000 });
+            break;
+          } catch { if (dtm) S.cb.freeGrid(dtm).catch(() => {}); dtm = dsm = null; }
+        }
+      }
+      const r = assignHeights(buildings.footprints, dtm, dsm);
+      if (S.site !== site) return;
+      S.siteDesc.buildings = r.buildings;
+      S.sampleJson = { buildings: r.buildings };
+      const parts = [`${r.measured} measured from DHM/Overflade`];
+      if (r.tagged) parts.push(`${r.tagged} from OSM tags`);
+      if (r.defaulted) parts.push(`${r.defaulted} at default height`);
+      toast(`${r.buildings.length} buildings: ${parts.join(', ')}${buildings.dsmError ? ` (surface model unavailable: ${buildings.dsmError})` : ''}`);
+    } finally {
+      for (const g of [dtm, dsm]) if (g) S.cb.freeGrid(g).catch(() => {});
+    }
+  }
+  await loadGrid();
 }
 
 async function onTerrainFile(file) {
@@ -556,7 +592,7 @@ function onHover(x, y, sx, sy, side) {
     rows.push(['Elevation', `${g.terrainZ[k].toFixed(2)} m`]);
     if (g.building[k] >= 0) {
       const b = S.sampleJson && S.sampleJson.buildings[g.building[k]];
-      rows.push(['Building', b ? `${b.name} · ${b.height} m` : `${(g.z[k] - g.terrainZ[k]).toFixed(1)} m`]);
+      rows.push(['Building', b ? `${b.name ? `${b.name} · ` : ''}${b.height} m` : `${(g.z[k] - g.terrainZ[k]).toFixed(1)} m`]);
     } else {
       const m = S.info.palette.materials[g.material[k]];
       rows.push(['Surface', m ? m.name : '–']);

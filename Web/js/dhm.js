@@ -2,12 +2,13 @@
 // The key stays in the browser (optionally remembered in localStorage) and is sent only to the official WCS endpoint.
 
 import { h, $, toast, icon } from './util.js';
+import { fetchOsmBuildings } from './buildings.js';
 
 const PROVIDERS = {
   datafordeler: { label: 'Datafordeler API key', url: 'https://wcs.datafordeler.dk/DHMNedboer/dhm_wcs/1.0.0/WCS', param: 'apikey', help: 'Get a free API key at <a href="https://portal.datafordeler.dk/hjem" target="_blank" rel="noopener">portal.datafordeler.dk</a> (log in with MitID/NemID or e-mail)' },
   dataforsyningen: { label: 'Dataforsyningen token', url: 'https://api.dataforsyningen.dk/dhm_wcs_DAF', param: 'token', help: 'dataforsyningen.dk → Log ind → Mine tokens' },
 };
-const LS = { key: 'cb.dhm.key', provider: 'cb.dhm.provider' };
+const LS = { key: 'cb.dhm.key', provider: 'cb.dhm.provider', buildings: 'cb.dhm.buildings' };
 const store = {
   get(k) { try { return localStorage.getItem(k) || ''; } catch { return ''; } },
   set(k, v) { try { v ? localStorage.setItem(k, v) : localStorage.removeItem(k); } catch { /* private mode */ } },
@@ -97,7 +98,7 @@ async function geocode(q) {
 export async function openDhmPicker(onTerrain, initial = {}) {
   const state = {
     lat: initial.lat ?? 55.6761, lon: initial.lon ?? 12.5683, size: initial.size ?? 400, res: 0.4,
-    name: initial.name || '', provider: store.get(LS.provider) || 'datafordeler', key: store.get(LS.key), remember: !!store.get(LS.key),
+    name: initial.name || '', provider: store.get(LS.provider) || 'datafordeler', key: store.get(LS.key), remember: !!store.get(LS.key), buildings: store.get(LS.buildings) !== 'off',
   };
   const close = () => { overlay.remove(); document.removeEventListener('keydown', onKey); };
   const onKey = (e) => { if (e.key === 'Escape') close(); };
@@ -111,6 +112,7 @@ export async function openDhmPicker(onTerrain, initial = {}) {
   const status = h('div.dhm-status');
   const keyInput = h('input.dhm-input.mono', { type: 'password', placeholder: 'Paste key…', value: state.key, autocomplete: 'off', spellcheck: false });
   const remember = h('input', { type: 'checkbox', checked: state.remember });
+  const withBuildings = h('input', { type: 'checkbox', checked: state.buildings });
   const provSel = h('select.dhm-input', ...Object.entries(PROVIDERS).map(([k, p]) => h('option', { value: k, selected: k === state.provider }, p.label)));
   const help = h('div.dhm-help');
   const resSel = h('select.dhm-input', ...[[0.4, '0.4 m (native)'], [0.8, '0.8 m'], [1.6, '1.6 m (fast, large areas)']].map(([v, l]) => h('option', { value: v, selected: v === state.res }, l)));
@@ -126,10 +128,10 @@ export async function openDhmPicker(onTerrain, initial = {}) {
     coordOut.textContent = `${state.lat.toFixed(5)}°N ${state.lon.toFixed(5)}°E · EPSG:25832 ${Math.round(b[0])}, ${Math.round(b[1])} → ${Math.round(b[2])}, ${Math.round(b[3])}`;
     sizeOut.textContent = `${state.size} × ${state.size} m`;
     const px = Math.round(state.size / state.res) ** 2;
-    help.innerHTML = `${PROVIDERS[provSel.value].help}. Download ≈ ${(px * 4 / 1e6).toFixed(1)} MB.`;
+    help.innerHTML = `${PROVIDERS[provSel.value].help}. Download ≈ ${((withBuildings.checked ? 2 : 1) * px * 4 / 1e6).toFixed(1)} MB.`;
     go.disabled = !keyInput.value.trim();
   };
-  provSel.onchange = updateInfo; keyInput.oninput = updateInfo;
+  provSel.onchange = updateInfo; keyInput.oninput = updateInfo; withBuildings.onchange = updateInfo;
   resSel.onchange = () => { state.res = +resSel.value; updateInfo(); };
 
   const overlay = h('div.dhm-overlay', { onclick: (e) => { if (e.target === overlay) close(); } },
@@ -145,7 +147,8 @@ export async function openDhmPicker(onTerrain, initial = {}) {
           h('label', 'Credentials'), provSel, keyInput,
           h('label.dhm-check', remember, h('span', 'Remember on this device')),
           help,
-          h('div.dhm-note', { html: `${icon('pin', 13)} Click the map to move the square. Terrain is DHM/Terræn: buildings are removed, bridge decks are included.` }),
+          h('label.dhm-check', withBuildings, h('span', '3D buildings (OpenStreetMap footprints, heights from DHM/Overflade)')),
+          h('div.dhm-note', { html: `${icon('pin', 13)} Click the map to move the square. Terrain is DHM/Terræn (buildings removed, bridge decks included); tick 3D buildings to put them back.` }),
           go, status))));
   document.body.append(overlay);
   updateInfo();
@@ -202,22 +205,36 @@ export async function openDhmPicker(onTerrain, initial = {}) {
     const key = keyInput.value.trim(); if (!key) return;
     store.set(LS.provider, provSel.value);
     store.set(LS.key, remember.checked ? key : '');
-    go.disabled = true; status.className = 'dhm-status busy'; status.textContent = 'Downloading DHM/Terræn…';
+    store.set(LS.buildings, withBuildings.checked ? '' : 'off');
+    const wantBuildings = withBuildings.checked;
+    go.disabled = true; status.className = 'dhm-status busy';
+    status.textContent = wantBuildings ? 'Downloading DHM/Terræn, DHM/Overflade and buildings…' : 'Downloading DHM/Terræn…';
     const b = bbox();
     try {
-      let bytes;
-      try { bytes = await fetchDhm(b, { provider: provSel.value, key, res: state.res }); }
+      let bytes, provider = provSel.value;
+      try { bytes = await fetchDhm(b, { provider, key, res: state.res }); }
       catch (e) {
         // A Datafordeler key may also be a Dataforsyningen token (and vice versa): try the other service once.
-        const other = provSel.value === 'datafordeler' ? 'dataforsyningen' : 'datafordeler';
-        try { bytes = await fetchDhm(b, { provider: other, key, res: state.res }); store.set(LS.provider, other); }
+        const other = provider === 'datafordeler' ? 'dataforsyningen' : 'datafordeler';
+        try { bytes = await fetchDhm(b, { provider: other, key, res: state.res }); provider = other; store.set(LS.provider, other); }
         catch { throw e; }
       }
-      status.className = 'dhm-status ok'; status.textContent = `Received ${(bytes.length / 1e6).toFixed(1)} MB – building grid…`;
+      let buildings = null;
+      if (wantBuildings) {
+        // Footprints and the surface model are best-effort: the site still opens with terrain only if either fails.
+        const [osm, dsm] = await Promise.allSettled([
+          fetchOsmBuildings(b),
+          fetchDhm(b, { provider, key, res: state.res, coverage: 'dhm_overflade' }),
+        ]);
+        if (osm.status === 'rejected') toast(`Buildings unavailable: ${osm.reason && osm.reason.message ? osm.reason.message : osm.reason}`, 'error');
+        else buildings = { footprints: osm.value, dsmBytes: dsm.status === 'fulfilled' ? dsm.value : null, dsmError: dsm.status === 'rejected' ? String(dsm.reason && dsm.reason.message || dsm.reason) : null };
+      }
+      status.className = 'dhm-status ok';
+      status.textContent = `Received ${(bytes.length / 1e6).toFixed(1)} MB${buildings ? ` + ${buildings.footprints.length} buildings` : ''} – building grid…`;
       const name = state.name || `Site at ${state.lat.toFixed(4)}°N ${state.lon.toFixed(4)}°E`;
-      const info = { id: 'custom', name, description: `DHM/Terræn ${state.res} m, ${state.size} × ${state.size} m around ${state.lat.toFixed(5)}°N ${state.lon.toFixed(5)}°E`, kind: 'custom', rainPreset: 1, bbox: b.map(Math.round), dhmFile: null, compareWith: null };
+      const info = { id: 'custom', name, description: `DHM/Terræn ${state.res} m, ${state.size} × ${state.size} m around ${state.lat.toFixed(5)}°N ${state.lon.toFixed(5)}°E${buildings ? ' · buildings: OpenStreetMap + DHM/Overflade' : ''}`, kind: 'custom', rainPreset: 1, bbox: b.map(Math.round), dhmFile: null, compareWith: null };
       close();
-      await onTerrain({ bytes, info });
+      await onTerrain({ bytes, buildings, info });
     } catch (e) {
       status.className = 'dhm-status err'; status.textContent = e.message; go.disabled = false;
       toast('DHM download failed', 'error');
