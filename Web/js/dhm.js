@@ -109,13 +109,14 @@ export async function openDhmPicker(onTerrain, initial = {}) {
   const sizeOut = h('b', `${state.size} m`);
   const coordOut = h('div.dhm-coord.mono');
   const status = h('div.dhm-status');
-  const keyInput = h('input.dhm-input.mono', { type: 'password', placeholder: 'Paste key…', value: state.key, autocomplete: 'off', spellcheck: false });
+  const keyInput = h('input.dhm-input.mono', { type: 'password', placeholder: 'Paste your API key…', value: state.key, autocomplete: 'off', spellcheck: false, 'aria-label': 'API key' });
   const remember = h('input', { type: 'checkbox', checked: state.remember });
   const provSel = h('select.dhm-input', ...Object.entries(PROVIDERS).map(([k, p]) => h('option', { value: k, selected: k === state.provider }, p.label)));
   const help = h('div.dhm-help');
-  const resSel = h('select.dhm-input', ...[[0.4, '0.4 m (native)'], [0.8, '0.8 m'], [1.6, '1.6 m (fast, large areas)']].map(([v, l]) => h('option', { value: v, selected: v === state.res }, l)));
+  const resSel = h('select.dhm-input', { 'aria-label': 'Detail' }, ...[[0.4, '0.4 m: finest (default)'], [0.8, '0.8 m'], [1.6, '1.6 m: faster, for large areas']].map(([v, l]) => h('option', { value: v, selected: v === state.res }, l)));
   const sizeIn = h('input', { type: 'range', min: 100, max: 1500, step: 50, value: state.size });
-  const go = h('button.btn.primary.dhm-go', { html: `${icon('download', 15)} Fetch terrain & open` });
+  const go = h('button.btn.primary.dhm-go', { html: `${icon('download', 15)} Download terrain & open` });
+  const goWhy = h('div.dhm-why', { role: 'status' });
 
   const bbox = () => {
     const { E, N } = latLonToUtm32(state.lat, state.lon); const r = state.size / 2;
@@ -127,7 +128,9 @@ export async function openDhmPicker(onTerrain, initial = {}) {
     sizeOut.textContent = `${state.size} × ${state.size} m`;
     const px = Math.round(state.size / state.res) ** 2;
     help.innerHTML = `${PROVIDERS[provSel.value].help}. Download ≈ ${(px * 4 / 1e6).toFixed(1)} MB.`;
-    go.disabled = !keyInput.value.trim();
+    const hasKey = !!keyInput.value.trim();
+    go.disabled = !hasKey;
+    goWhy.textContent = hasKey ? '' : 'Paste your API key above to enable the download.';
   };
   provSel.onchange = updateInfo; keyInput.oninput = updateInfo;
   resSel.onchange = () => { state.res = +resSel.value; updateInfo(); };
@@ -135,19 +138,22 @@ export async function openDhmPicker(onTerrain, initial = {}) {
   const overlay = h('div.dhm-overlay', { onclick: (e) => { if (e.target === overlay) close(); } },
     h('div.dhm-dialog',
       h('div.dhm-head',
-        h('div', h('div.eyebrow', 'New site · Danmarks Højdemodel'), h('h2', 'Pick a location in Denmark')),
-        h('button.btn.ghost', { onclick: close, html: icon('x', 16) })),
+        h('div', h('div.eyebrow', 'New site · Danish elevation model (DHM)'), h('h2', 'Find a place in Denmark'),
+          h('p.dhm-intro', { html: '1. Search an address or click the map to place the square. 2. Paste a free API key (<a href="https://portal.datafordeler.dk/hjem" target="_blank" rel="noopener">get one at Datafordeler</a>: log in with MitID or e-mail, create an API key, copy it). 3. Download.' })),
+        h('button.btn.ghost', { onclick: close, html: icon('x', 16), title: 'Close', 'aria-label': 'Close' })),
       h('div.dhm-body',
         h('div.dhm-left', h('div.dhm-search', search, results), mapEl, coordOut),
         h('div.dhm-right',
-          h('label', 'Area', sizeOut), sizeIn,
-          h('label', 'Resolution'), resSel,
-          h('label', 'Credentials'), provSel, keyInput,
+          h('label', 'Size of the square', sizeOut), sizeIn,
+          h('label', 'Detail'), resSel,
+          h('label', 'API key'), keyInput, provSel,
           h('label.dhm-check', remember, h('span', 'Remember on this device')),
           help,
           h('div.dhm-note', { html: `${icon('pin', 13)} Click the map to move the square. Terrain is DHM/Terræn: buildings are removed, bridge decks are included.` }),
-          go, status))));
+          go, goWhy, status,
+          h('div.dhm-alt', { html: 'No key? <a href="#/site/demo_block">Open an example site</a> instead, or drop a terrain file on the start page.' })))));
   document.body.append(overlay);
+  overlay.querySelector('.dhm-alt a').addEventListener('click', close);
   updateInfo();
   keyInput.focus();
 
@@ -175,7 +181,7 @@ export async function openDhmPicker(onTerrain, initial = {}) {
     setTimeout(() => map.invalidateSize(), 50);
   } catch (e) {
     mapEl.innerHTML = '';
-    mapEl.append(h('div.dhm-map-loading', 'Map unavailable offline – search or edit coordinates still work.'));
+    mapEl.append(h('div.dhm-map-loading', 'The background map could not load (offline?). Address search still places the square.'));
   }
   sizeIn.oninput = () => { state.size = +sizeIn.value; drawRect(); updateInfo(); };
 
@@ -219,8 +225,10 @@ export async function openDhmPicker(onTerrain, initial = {}) {
       close();
       await onTerrain({ bytes, info });
     } catch (e) {
-      status.className = 'dhm-status err'; status.textContent = e.message; go.disabled = false;
-      toast('DHM download failed', 'error');
+      status.className = 'dhm-status err';
+      status.textContent = /rejected|401|403/i.test(e.message) ? `The key was not accepted. Check that you copied the whole key, and that it is a Datafordeler API key or a Dataforsyningen token. (${e.message})` : `Download failed: ${e.message}`;
+      go.disabled = false;
+      toast('Terrain download failed: see the message in the dialog', 'error');
     }
   };
 }

@@ -11,8 +11,8 @@ Then use it:
 
 | Where | How |
 | --- | --- |
-| Web app / desktop app | Start page → **Pick a location** → search an address or click the map → paste the key → *Fetch terrain & open*. The key stays on your machine (optionally remembered by the browser). |
-| Real sample sites (Tåsinge Plads, …) | Open the site → **Fetch terrain with API key**. |
+| Web app / desktop app | Start page → **Find a place in Denmark** → search an address or click the map → paste the key → *Download terrain & open*. The key stays on your machine (optionally remembered by the browser). |
+| Real sample sites (Tåsinge Plads, …) | Open the site → **Download terrain…** (or drop a terrain file). |
 | Command line | `python tools/fetch_dhm.py --apikey <KEY>` (or set `DATAFORDELER_API_KEY`) → GeoTIFFs in `samples/`, which load in Rhino/Revit (*Import DHM terrain*) or by drag-and-drop in the web app. |
 
 An older **Dataforsyningen token** (dataforsyningen.dk → *Mine tokens*) also works; choose it in the credentials list.
