@@ -21,6 +21,8 @@ jobs:
     runs-on: windows-latest
     env:
       TAG: ${{ github.event.inputs.tag || github.ref_name }}
+      # Built into the plug-ins (Cloudburst.Net.dll) and the desktop app (Web/js/config.js) for in-app DHM downloads.
+      DHM_API_KEY: ${{ secrets.DHM_API_KEY }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -41,6 +43,9 @@ jobs:
           Compress-Archive -Path dist/Rhino/* -DestinationPath Cloudburst-Rhino.zip -Force
           Compress-Archive -Path dist/Revit/* -DestinationPath Cloudburst-Revit.zip -Force
           if (Test-Path dist/Standalone) { Compress-Archive -Path dist/Standalone/* -DestinationPath Cloudburst-Standalone.zip -Force }
+
+      - name: Built-in DHM API key for the desktop app (Web/js/config.js)
+        run: python tools/inject_dhm_key.py
 
       - name: Build desktop app installers (Tauri)
         working-directory: Desktop/src-tauri
@@ -70,7 +75,7 @@ jobs:
             | `Cloudburst-Revit.zip` | Revit 2026 add-in. Unzip into `%AppData%\Autodesk\Revit\Addins\2026\` (the .addin file next to the `Cloudburst` folder). |
             | `Cloudburst-Standalone.zip` | The shared panel without CAD (quick test) |
 
-            Real terrain needs a free Datafordeler API key: https://portal.datafordeler.dk/hjem (MitID/NemID or e-mail login).
+            Real terrain is downloaded with a built-in Datafordeler API key. To use your own, get one free at https://portal.datafordeler.dk/hjem and set the `DHM_API_KEY` environment variable (plug-ins) or paste it in the location picker (desktop/web).
           files: |
             Desktop/src-tauri/target/release/bundle/msi/*.msi
             Desktop/src-tauri/target/release/bundle/nsis/*.exe

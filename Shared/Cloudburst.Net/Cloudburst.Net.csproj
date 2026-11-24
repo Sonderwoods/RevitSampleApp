@@ -21,4 +21,25 @@
     <None Include="$(NativeDir)release\libcloudburst_core.so" Condition="Exists('$(NativeDir)release\libcloudburst_core.so')" Link="libcloudburst_core.so" CopyToOutputDirectory="PreserveNewest" />
     <None Include="$(NativeDir)release\libcloudburst_core.dylib" Condition="Exists('$(NativeDir)release\libcloudburst_core.dylib')" Link="libcloudburst_core.dylib" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
+  <!-- Built-in DHM API key (Datafordeler) for in-app terrain downloads. CI passes the GitHub secret DHM_API_KEY as an
+       environment variable (MSBuild sees it as $(DHM_API_KEY)); locally: dotnet build -p:DhmApiKey=... or set DHM_API_KEY.
+       Empty when not set: users then point Cloudburst at their own key (see Demo/DhmClient.cs). -->
+  <PropertyGroup>
+    <DhmApiKey Condition="'$(DhmApiKey)' == ''">$(DHM_API_KEY)</DhmApiKey>
+  </PropertyGroup>
+  <Target Name="GenerateDhmBuildKey" BeforeTargets="CoreCompile">
+    <PropertyGroup>
+      <_DhmKeyLiteral>$(DhmApiKey.Trim())</_DhmKeyLiteral>
+      <_DhmKeyFile>$(IntermediateOutputPath)DhmBuildKey.g.cs</_DhmKeyFile>
+    </PropertyGroup>
+    <!-- Keys are plain tokens: reject anything that would need escaping in a C# string literal. -->
+    <Error Condition="!$([System.Text.RegularExpressions.Regex]::IsMatch('$(_DhmKeyLiteral)', '^[A-Za-z0-9._~+/=:-]*$'))"
+           Text="DHM_API_KEY may only contain letters, digits and ._~+/=:- (check the GitHub secret for stray quotes or spaces)." />
+    <WriteLinesToFile File="$(_DhmKeyFile)" Overwrite="true" WriteOnlyWhenDifferent="true"
+                      Lines="// &lt;auto-generated/&gt; Built-in DHM API key from DHM_API_KEY at build time%3B do not commit.;namespace Cloudburst.Demo { internal static class DhmBuildKey { internal const string Value = &quot;$([MSBuild]::Escape($(_DhmKeyLiteral)))&quot;%3B } }" />
+    <ItemGroup>
+      <Compile Include="$(_DhmKeyFile)" />
+      <FileWrites Include="$(_DhmKeyFile)" />
+    </ItemGroup>
+  </Target>
 </Project>

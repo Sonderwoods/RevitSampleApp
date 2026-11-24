@@ -5,7 +5,7 @@ import { h, $, $$, clamp, debounce, fmtInt, fmt1, fmtVol, fmtArea, fmtCm, fmtClo
 import { DEPTH, VELOCITY, HAZARD, TPEAK, INFIL, DIFF, LAYERS } from './js/colors.js';
 import { baseCanvas, buildingsCanvas, overlayCanvas, materialCanvas, materialsPresent, sampleAt, cellAt, differenceArray } from './js/raster.js';
 import { MapView, roundRect } from './js/mapview.js';
-import { openDhmPicker } from './js/dhm.js';
+import { openDhmPicker, fetchDhmAuto, hasBuiltInKey } from './js/dhm.js';
 import { addSiteSource, addExportAction, siteSources, exportActions, hooks } from './js/hooks.js';
 import { help, term, TERMS, installTips } from './js/terms.js';
 import { reportOptionMeta } from './js/report.js'; // [report-hook] registers the PDF report export action (see js/report.js)
@@ -137,7 +137,7 @@ function renderGallery() {
 // Built-in site sources and export actions, registered through the same hooks other modules use (js/hooks.js).
 function registerBuiltIns() {
   addSiteSource({
-    id: 'dhm', order: 10, icon: 'pin', title: 'Find a place in Denmark', tag: 'Needs a free API key',
+    id: 'dhm', order: 10, icon: 'pin', title: 'Find a place in Denmark', tag: hasBuiltInKey() ? 'Official terrain · 0.4 m' : 'Needs a free API key',
     description: 'Search an address, place a square on the map, and the official terrain (DHM) is downloaded for you.',
     open: (ctx) => openDhmPicker(ctx.openTerrain),
   });
@@ -407,16 +407,28 @@ function showSiteDrop() {
     h('p', 'This site needs its terrain: the ground heights the water runs over. Choose one:'));
   if (isReal) {
     const [x0, y0, x1, y1] = s.bbox; const ll = utm32ToLatLon((x0 + x1) / 2, (y0 + y1) / 2);
+    const picker = () => openDhmPicker(async ({ bytes }) => { S.siteDesc = { terrainBytes: bytes }; await loadGrid(); },
+      { lat: ll.lat, lon: ll.lon, size: Math.round(x1 - x0), name: S.site.name });
+    const btn = h('button.btn.primary.fetch-dhm', {
+      html: `${icon('download', 15)} ${hasBuiltInKey() ? 'Download terrain' : 'Download terrain…'}`,
+      onclick: async () => {
+        if (!hasBuiltInKey()) { picker(); return; }
+        // Built-in key: download the site's exact extent straight away; fall back to the picker on failure.
+        btn.disabled = true; toast('Downloading DHM/Terræn…');
+        try {
+          const { bytes } = await fetchDhmAuto(s.bbox, { res: 0.4 });
+          if (S.site?.info !== s) return;
+          S.siteDesc = { terrainBytes: bytes }; await loadGrid();
+        } catch (e) { toast(`DHM download failed: ${e.message}`, 'error'); picker(); }
+        finally { btn.disabled = false; }
+      },
+    });
     card.append(h('div.choice',
       h('span.choice-n', '1'),
       h('div.choice-body',
         h('b', 'Download it from the Danish elevation model'),
-        h('span.muted', { html: 'Needs a free API key from <a href="https://portal.datafordeler.dk/hjem" target="_blank" rel="noopener">Datafordeler</a> (log in with MitID or e-mail). The download takes a few seconds.' }),
-        h('button.btn.primary.fetch-dhm', {
-          html: `${icon('download', 15)} Download terrain…`,
-          onclick: () => openDhmPicker(async ({ bytes }) => { S.siteDesc = { terrainBytes: bytes }; await loadGrid(); },
-            { lat: ll.lat, lon: ll.lon, size: Math.round(x1 - x0), name: S.site.name }),
-        }))));
+        h('span.muted', { html: hasBuiltInKey() ? 'No key needed. The download takes a few seconds.' : 'Needs a free API key from <a href="https://portal.datafordeler.dk/hjem" target="_blank" rel="noopener">Datafordeler</a> (log in with MitID or e-mail). The download takes a few seconds.' }),
+        btn)));
   }
   const dz = h('div.dropzone', { tabIndex: 0, role: 'button', onclick: () => $('#fileInput').click(), onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('#fileInput').click(); } } },
     h('div.dz-icon', { html: icon('upload', 28) }),
@@ -855,7 +867,7 @@ function siteStepBody() {
     const notes = S.site.kind === 'synthetic' ? [] : (g.warnings || []).filter((w) => !/built in/i.test(w));
     if (notes.length) out.push(h('p.step-warn', { html: `${icon('alert', 13)} ${notes.join(' ')}` }));
   } else if (S.site && S.site.kind === 'real') {
-    out.push(h('p.step-note', 'This real site needs its terrain. Use the panel on the map: fetch it with a free API key, or drop a terrain file.'));
+    out.push(h('p.step-note', `This real site needs its terrain. Use the panel on the map: ${hasBuiltInKey() ? 'download it' : 'fetch it with a free API key'}, or drop a terrain file.`));
   }
   out.push(h('div.row-btns', h('a.btn.ghost.small', { href: '#/', html: `${icon('back', 13)} Change site` })));
   return out;

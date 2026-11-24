@@ -29,7 +29,7 @@ namespace Cloudburst.UI.ViewModels
                         var other = list.FirstOrDefault(o => o.Id == info.CompareWith)?.Name ?? info.CompareWith;
                         vm.CompareHint = $"Tip: save this as an option, load “{other}” and compare";
                     }
-                    vm.LoadCommand = Cmd(() => LoadSampleAsync(vm), () => vm.IsAvailable && !IsDynamicRunning, "Load sample");
+                    vm.LoadCommand = Cmd(() => LoadSampleAsync(vm), () => (vm.IsAvailable || vm.CanDownload) && !IsDynamicRunning, "Load sample");
                     Samples.Add(vm);
                 }
             }
@@ -55,8 +55,22 @@ namespace Cloudburst.UI.ViewModels
         private async Task LoadSampleAsync(SampleItemViewModel sample)
         {
             if (sample == null) return;
-            if (!sample.IsAvailable) { Toast(sample.UnavailableHint, "Warning"); return; }
             if (IsDynamicRunning) { Toast("Wait for the dynamic run to finish (or cancel it) first.", "Warning"); return; }
+            if (!sample.IsAvailable)
+            {
+                if (!sample.CanDownload) { Toast(sample.UnavailableHint, "Warning"); return; }
+                using (Busy($"Downloading terrain for “{sample.Name}”…"))
+                {
+                    try
+                    {
+                        var path = await DhmClient.DownloadSampleAsync(sample.Info);
+                        Log($"Cloudburst: DHM terrain saved to {path}");
+                    }
+                    catch (Exception ex) { Toast("DHM download failed: " + ex.Message, "Error"); return; }
+                }
+                sample.IsAvailable = SampleLibrary.IsAvailable(sample.Info);
+                if (!sample.IsAvailable) { Toast(sample.UnavailableHint, "Warning"); return; }
+            }
             using (Busy($"Loading “{sample.Name}”…"))
             {
                 string id = sample.Id;

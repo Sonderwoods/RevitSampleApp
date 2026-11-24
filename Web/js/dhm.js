@@ -2,8 +2,11 @@
 // add OpenStreetMap buildings / land cover, and open it. The fetching, reprojection and metadata live in
 // js/sources/ (registry.js); this file is only the dialog. An API key stays in the browser (optionally remembered in
 // localStorage) and is sent only to the official WCS endpoint (directly, or through the local relay serve.py).
+// DHM uses the key built into the deployment (js/config.js, from the GitHub secret DHM_API_KEY) unless the user pastes
+// their own.
 
 import { h, toast, icon } from './util.js';
+import { DHM_API_KEY } from './config.js';
 import { DHM_PROVIDERS as PROVIDERS, DHM_COVERAGES, fetchDhmTiles, listDhmCoverages, hasProxy } from './sources/dhm.js';
 import { readGeoTiff, writeGeoTiff } from './sources/tiff.js';
 import { mosaic } from './sources/gridops.js';
@@ -11,6 +14,10 @@ import { tmForward } from './sources/proj.js';
 import { getSource, listSources, fetchTerrain, fetchOsmContext, attachContext, suitability } from './sources/registry.js';
 
 export { hasProxy };
+
+/** Key built into this deployment from the GitHub secret DHM_API_KEY (empty in source builds). */
+export const BUILTIN_KEY = (DHM_API_KEY || '').trim();
+export const hasBuiltInKey = () => !!BUILTIN_KEY;
 
 const LS = { key: 'cb.dhm.key', provider: 'cb.dhm.provider', osm: 'cb.src.osm' };
 const store = {
@@ -27,6 +34,21 @@ export async function fetchDhm(bbox, { provider, key, res = 0.4, coverage = 'dhm
   if (tiles.length === 1) return tiles[0].bytes;
   const parts = []; for (const t of tiles) parts.push(await readGeoTiff(t.bytes));
   return writeGeoTiff({ ...mosaic(parts), epsg: 25832 });
+}
+
+/**
+ * Fetch with the user's key, or the built-in key when none is given. Tries the other provider once, because a
+ * Datafordeler key may also be a Dataforsyningen token (and vice versa). Returns { bytes, provider }.
+ */
+export async function fetchDhmAuto(bbox, { provider = 'datafordeler', key = '', res = 0.4, coverage = 'dhm_terraen' } = {}) {
+  const k = (key || '').trim() || BUILTIN_KEY;
+  if (!k) throw new Error('No API key: paste a Datafordeler key.');
+  try { return { bytes: await fetchDhm(bbox, { provider, key: k, res, coverage }), provider }; }
+  catch (e) {
+    const other = provider === 'datafordeler' ? 'dataforsyningen' : 'datafordeler';
+    try { return { bytes: await fetchDhm(bbox, { provider: other, key: k, res, coverage }), provider: other }; }
+    catch { throw e; }
+  }
 }
 
 // ---------- Leaflet (loaded on demand from a pinned CDN build)
@@ -76,7 +98,7 @@ export async function openDhmPicker(onTerrain, initial = {}) {
   const status = h('div.dhm-status');
   const srcSel = h('select.dhm-input', { 'aria-label': 'Terrain source' }, ...listSources({ kind: 'terrain' }).filter((s) => s.id !== 'upload').map((s) => h('option', { value: s.id, selected: s.id === state.sourceId }, s.name)));
   const srcInfo = h('div.dhm-help');
-  const keyInput = h('input.dhm-input.mono', { type: 'password', placeholder: 'Paste your API key…', value: state.key, autocomplete: 'off', spellcheck: false, 'aria-label': 'API key' });
+  const keyInput = h('input.dhm-input.mono', { type: 'password', placeholder: BUILTIN_KEY ? 'Built-in key (or paste your own)' : 'Paste your API key…', value: state.key, autocomplete: 'off', spellcheck: false, 'aria-label': 'API key' });
   const remember = h('input', { type: 'checkbox', checked: state.remember });
   const provSel = h('select.dhm-input', ...Object.entries(PROVIDERS).map(([k, p]) => h('option', { value: k, selected: k === state.provider }, p.label)));
   const covSel = h('select.dhm-input', { 'aria-label': 'Product' }, ...DHM_COVERAGES.map((c) => h('option', { value: c.id }, c.label)));
@@ -96,7 +118,8 @@ export async function openDhmPicker(onTerrain, initial = {}) {
     const src = getSource(state.sourceId);
     title.textContent = isDhm() ? 'Find a place in Denmark' : 'Find a place (anywhere)';
     intro.innerHTML = isDhm()
-      ? '1. Search an address or click the map to place the square. 2. Paste a free API key (<a href="https://portal.datafordeler.dk/hjem" target="_blank" rel="noopener">get one at Datafordeler</a>: log in with MitID or e-mail, create an API key, copy it). 3. Download.'
+      ? BUILTIN_KEY ? '1. Search an address or click the map to place the square. 2. Download. A key is built in – no key needed.'
+      : '1. Search an address or click the map to place the square. 2. Paste a free API key (<a href="https://portal.datafordeler.dk/hjem" target="_blank" rel="noopener">get one at Datafordeler</a>: log in with MitID or e-mail, create an API key, copy it). 3. Download.'
       : '1. Search an address or click the map to place the square. 2. Download. No key needed – but read the resolution warning first.';
     for (const el of dhmOnly) el.style.display = isDhm() ? '' : 'none';
     coordOut.textContent = `${state.lat.toFixed(5)}°, ${state.lon.toFixed(5)}°`;
@@ -106,10 +129,10 @@ export async function openDhmPicker(onTerrain, initial = {}) {
     note.innerHTML = `${icon('pin', 13)} ${src.note}`;
     if (isDhm()) {
       const px = Math.round(state.size / state.res) ** 2;
-      help.innerHTML = `${PROVIDERS[provSel.value].help}. Download ≈ ${(px * 4 / 1e6).toFixed(1)} MB.`;
+      help.innerHTML = `${!keyInput.value.trim() && BUILTIN_KEY ? 'Using the built-in key – no key needed. Optional: ' : ''}${PROVIDERS[provSel.value].help}. Download ≈ ${(px * 4 / 1e6).toFixed(1)} MB.`;
     }
     const outside = src.region && !(state.lat >= src.region.south && state.lat <= src.region.north && state.lon >= src.region.west && state.lon <= src.region.east);
-    const hasKey = !isDhm() || !!keyInput.value.trim();
+    const hasKey = !isDhm() || !!keyInput.value.trim() || !!BUILTIN_KEY;
     go.disabled = !hasKey || outside;
     goWhy.textContent = outside ? `${src.name} only covers ${src.coverage}. Pick another source for this location.` : hasKey ? '' : 'Paste your API key above to enable the download.';
   };
@@ -119,7 +142,7 @@ export async function openDhmPicker(onTerrain, initial = {}) {
   srcSel.onchange = () => { state.sourceId = srcSel.value; updateInfo(); };
   osmChk.onchange = () => { state.osm = osmChk.checked; store.set(LS.osm, state.osm ? '' : 'off'); };
   covList.onclick = async () => {
-    const key = keyInput.value.trim(); if (!key) { goWhy.textContent = 'Paste your API key first.'; return; }
+    const key = keyInput.value.trim() || BUILTIN_KEY; if (!key) { goWhy.textContent = 'Paste your API key first.'; return; }
     status.className = 'dhm-status busy'; status.textContent = 'Asking the service for its products…';
     try {
       const list = await listDhmCoverages({ provider: provSel.value, key });
@@ -195,8 +218,8 @@ export async function openDhmPicker(onTerrain, initial = {}) {
   };
 
   go.onclick = async () => {
-    const key = keyInput.value.trim(); if (isDhm() && !key) return;
-    if (isDhm()) { store.set(LS.provider, provSel.value); store.set(LS.key, remember.checked ? key : ''); }
+    const own = keyInput.value.trim(), key = own || BUILTIN_KEY; if (isDhm() && !key) return;
+    if (isDhm()) { store.set(LS.provider, provSel.value); store.set(LS.key, remember.checked ? own : ''); }
     go.disabled = true; status.className = 'dhm-status busy';
     const say = (m) => { status.textContent = m; };
     const args = { lat: state.lat, lon: state.lon, sizeM: state.size, name: state.name, onProgress: say, provider: provSel.value, key, res: state.res, coverage: state.coverage };

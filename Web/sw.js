@@ -1,10 +1,10 @@
 // Service worker: makes the app installable (Edge/Chrome "Install app") and usable offline.
 // Same-origin files: network first (always fresh while developing), cache as fallback.
 // Pinned CDN libraries (three.js, Leaflet, fonts): cache first. DHM relay, map tiles and search: never cached.
-const CACHE = 'cloudburst-v2'; // v2: Apple-style restyle (styles.css, report.css, index.html)
+const CACHE = 'cloudburst-v3'; // v3: Apple-style restyle (styles.css, report.css, index.html) + built-in DHM key (js/config.js)
 const SHELL = ['./', 'index.html', 'app.js', 'styles.css', 'manifest.webmanifest', 'icons/icon-192.png', 'icons/icon-512.png',
   'engine/cloudburst-wasm.js', 'engine/engine-worker.js', 'engine/engine-client.js', 'engine/cloudburst_core.wasm',
-  'js/util.js', 'js/colors.js', 'js/raster.js', 'js/mapview.js', 'js/view3d.js', 'js/dhm.js', 'js/hooks.js', 'js/terms.js',
+  'js/util.js', 'js/config.js', 'js/colors.js', 'js/raster.js', 'js/mapview.js', 'js/view3d.js', 'js/dhm.js', 'js/hooks.js', 'js/terms.js',
   'js/sources/registry.js', 'js/sources/tiff.js', 'js/sources/textgrid.js', 'js/sources/proj.js', 'js/sources/gridops.js', 'js/sources/dhm.js',
   'js/sources/terrarium.js', 'js/sources/copernicus.js', 'js/sources/osm.js', 'js/sources/ui.js',
   // PDF report (js/report.js): precached so "Export report" works offline
