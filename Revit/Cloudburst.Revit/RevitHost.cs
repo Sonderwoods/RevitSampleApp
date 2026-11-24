@@ -24,6 +24,7 @@ namespace Cloudburst.Revit
         private sealed class Pick
         {
             public ElementId Id;
+            public ElementId LinkId;       // RevitLinkInstance when the element lives in a linked model, else null
             public object Memory;          // TriangleMesh / BuildingInput / MaterialRegion / WallLine / Polygon2
             public string MaterialId;      // Surfaces; Buildings: roof material (null = default roof)
             public double WallHeight = 0.10;
@@ -106,7 +107,7 @@ namespace Cloudburst.Revit
                     // surfaces accumulate; re-picking an element replaces its material
                     var list = Get(role);
                     var ids = new HashSet<ElementId>(picks.Select(p => p.Id));
-                    list.RemoveAll(p => p.Id != null && ids.Contains(p.Id));
+                    list.RemoveAll(p => p.Id != null && p.LinkId == null && ids.Contains(p.Id));
                     list.AddRange(picks);
                 }
                 else _picks[role] = picks;
@@ -268,7 +269,7 @@ namespace Cloudburst.Revit
         // =====================================================================================================  auto-detect
         public string AutoSiteLabel => "Use the Revit model";
 
-        public string AutoSiteHint => "Toposolids become the terrain, roofs, floors and walls the buildings. Surface materials are read from the Revit materials of the toposolids, their sub-divisions and the roofs.";
+        public string AutoSiteHint => "Toposolids become the terrain, roofs, floors and walls the buildings, also from linked models. Surface materials are read from the Revit materials of the toposolids, their sub-divisions and the roofs.";
 
         public Task<string> DetectSiteAsync() => _bridge.RunAsync(DetectCore);
 
@@ -277,7 +278,8 @@ namespace Cloudburst.Revit
         /// terrain = toposolids (not sub-divisions) and legacy topography; buildings = roofs, floors and walls;
         /// surfaces = toposolids and their sub-divisions with the material of their top face.
         /// Uses what is visible in the active 3D or plan view (so phases, design options, hidden elements and section
-        /// boxes are respected), otherwise the whole model.
+        /// boxes are respected), otherwise the whole model. Loaded linked models are always read too (whole link, placed with
+        /// the link's transform).
         /// </summary>
         private string DetectCore(UIApplication app)
         {
@@ -287,16 +289,41 @@ namespace Cloudburst.Revit
             var view = uidoc.ActiveView;
             bool byView = view != null && !view.IsTemplate && (view is View3D || view is ViewPlan);
 
+            // the model itself (link = null) plus every loaded linked model (visible in the view, when reading by view)
+            var sources = new List<(Document Doc, ElementId Link)> { (doc, null) };
+            try
+            {
+                var lc = byView ? new FilteredElementCollector(doc, view.Id) : new FilteredElementCollector(doc);
+                foreach (var li in lc.OfClass(typeof(RevitLinkInstance)).Cast<RevitLinkInstance>())
+                {
+                    var ld = li.GetLinkDocument();
+                    if (ld != null) sources.Add((ld, li.Id)); else Log($"Linked model “{li.Name}” is not loaded and was skipped.");
+                }
+            }
+            catch (Exception ex) { Logger.Write("Detect links: " + ex.Message); }
+            int linkCount = sources.Count - 1;
+            var linkOf = new Dictionary<Element, ElementId>(); // element of a linked model → its link instance
+
             List<Element> Of(BuiltInCategory cat)
             {
-                try
+                var all = new List<Element>();
+                foreach (var (d, link) in sources)
                 {
-                    var c = byView ? new FilteredElementCollector(doc, view.Id) : new FilteredElementCollector(doc);
-                    return c.OfCategory(cat).WhereElementIsNotElementType().ToElements()
-                        .Where(e => e != null && !RevitUtil.IsCloudburstShape(e, RevitUtil.DataPreview) && !RevitUtil.IsCloudburstShape(e, RevitUtil.DataBake)).ToList();
+                    try
+                    {
+                        var c = byView && link == null ? new FilteredElementCollector(d, view.Id) : new FilteredElementCollector(d);
+                        foreach (var e in c.OfCategory(cat).WhereElementIsNotElementType().ToElements())
+                        {
+                            if (e == null || RevitUtil.IsCloudburstShape(e, RevitUtil.DataPreview) || RevitUtil.IsCloudburstShape(e, RevitUtil.DataBake)) continue;
+                            all.Add(e);
+                            if (link != null) linkOf[e] = link;
+                        }
+                    }
+                    catch (Exception ex) { Logger.Write($"Detect {cat}: {ex.Message}"); }
                 }
-                catch (Exception ex) { Logger.Write($"Detect {cat}: {ex.Message}"); return new List<Element>(); }
+                return all;
             }
+            ElementId L(Element e) => linkOf.TryGetValue(e, out var l) ? l : null;
             bool IsSubdivision(Element e)
             {
                 try { return e is Toposolid t && t.HostTopoId != null && t.HostTopoId != ElementId.InvalidElementId; } catch { return false; }
@@ -312,30 +339,30 @@ namespace Cloudburst.Revit
 
             if (terrain.Count == 0)
             {
-                Log(byView ? $"No toposolid or topography is visible in the view “{view.Name}”." : "The model has no toposolid or topography.");
+                Log(byView ? $"No toposolid or topography is visible in the view “{view.Name}” or its {linkCount} linked model(s)." : $"The model and its {linkCount} linked model(s) have no toposolid or topography.");
                 return null;
             }
 
             var buildings = new List<Pick>();
-            buildings.AddRange(roofs.Select(e => new Pick { Id = e.Id, Kind = "Roof", MaterialId = GuessMaterial(e, false) }));
-            buildings.AddRange(floors.Select(e => new Pick { Id = e.Id, Kind = "Floor", MaterialId = GuessMaterial(e, false) }));
-            buildings.AddRange(walls.Select(e => new Pick { Id = e.Id, Kind = "Wall" }));
+            buildings.AddRange(roofs.Select(e => new Pick { Id = e.Id, LinkId = L(e), Kind = "Roof", MaterialId = GuessMaterial(e, false) }));
+            buildings.AddRange(floors.Select(e => new Pick { Id = e.Id, LinkId = L(e), Kind = "Floor", MaterialId = GuessMaterial(e, false) }));
+            buildings.AddRange(walls.Select(e => new Pick { Id = e.Id, LinkId = L(e), Kind = "Wall" }));
 
             // base terrain first, sub-divisions after it so they win where they cover
             var surfaces = new List<Pick>();
-            surfaces.AddRange(terrain.Select(e => new Pick { Id = e.Id, Kind = KindOf(e), MaterialId = GuessMaterial(e) }));
-            surfaces.AddRange(subdivisions.Select(e => new Pick { Id = e.Id, Kind = "Sub-division", MaterialId = GuessMaterial(e) }));
+            surfaces.AddRange(terrain.Select(e => new Pick { Id = e.Id, LinkId = L(e), Kind = KindOf(e), MaterialId = GuessMaterial(e) }));
+            surfaces.AddRange(subdivisions.Select(e => new Pick { Id = e.Id, LinkId = L(e), Kind = "Sub-division", MaterialId = GuessMaterial(e) }));
 
             lock (_gate)
             {
-                _picks[PickRole.Terrain] = terrain.Select(e => new Pick { Id = e.Id, Kind = KindOf(e) }).ToList();
+                _picks[PickRole.Terrain] = terrain.Select(e => new Pick { Id = e.Id, LinkId = L(e), Kind = KindOf(e) }).ToList();
                 _picks[PickRole.Buildings] = buildings;
                 _picks[PickRole.Surfaces] = surfaces;
                 foreach (var role in new[] { PickRole.Terrain, PickRole.Buildings, PickRole.Surfaces })
                     _summaries[role] = Summarize(role);
             }
 
-            string scope = byView ? $"view “{view.Name}”" : "whole model";
+            string scope = (byView ? $"view “{view.Name}”" : "whole model") + (linkCount > 0 ? $" + {linkCount} linked model{(linkCount == 1 ? "" : "s")}" : "");
             string found = $"{terrain.Count} terrain, {roofs.Count} roofs, {floors.Count} floors, {walls.Count} walls, {subdivisions.Count} sub-divisions ({scope})";
             Log("Site read from the Revit model: " + found + ".");
             return found;
@@ -352,10 +379,22 @@ namespace Cloudburst.Revit
             var site = new SiteModel();
             int missing = 0;
 
+            Transform tf = null; // set by El: places a linked element in this model, null for elements of the model itself
             Element El(Pick p)
             {
+                tf = null;
                 if (p.Id == null || doc == null) return null;
-                var e = doc.GetElement(p.Id);
+                Element e = null;
+                try
+                {
+                    if (p.LinkId == null) e = doc.GetElement(p.Id);
+                    else if (doc.GetElement(p.LinkId) is RevitLinkInstance link)
+                    {
+                        e = link.GetLinkDocument()?.GetElement(p.Id);
+                        tf = link.GetTotalTransform();
+                    }
+                }
+                catch (Exception ex) { Logger.Write("Linked element: " + ex.Message); }
                 if (e == null) missing++;
                 return e;
             }
@@ -366,17 +405,17 @@ namespace Cloudburst.Revit
                 {
                     if (p.Memory is TriangleMesh mm) { target.Add(mm); continue; }
                     var e = El(p); if (e == null) continue;
-                    var mesh = GeometryReader.ReadMesh(e, 0.3, "Terrain");
+                    var mesh = GeometryReader.ReadMesh(e, 0.3, "Terrain", tf);
                     if (mesh != null) target.Add(mesh); else Log($"No terrain geometry in {KindOf(e)} {e.Id}");
                 }
 
-            var wallElements = new List<Element>();
+            var wallElements = new List<(Element, Transform)>();
             foreach (var p in Of(PickRole.Buildings))
             {
                 if (p.Memory is BuildingInput bi) { site.Buildings.Add(bi); continue; }
                 var e = El(p); if (e == null) continue;
-                if (e is Wall) { wallElements.Add(e); continue; } // all walls together: they only outline the buildings
-                var mesh = GeometryReader.ReadMesh(e, 0.0);
+                if (e is Wall) { wallElements.Add((e, tf)); continue; } // all walls together: they only outline the buildings
+                var mesh = GeometryReader.ReadMesh(e, 0.0, null, tf);
                 if (mesh != null) site.Buildings.Add(new BuildingInput { Geometry = mesh, Name = GeometryReader.SafeName(e) ?? KindOf(e), RoofMaterialId = p.MaterialId });
             }
             if (wallElements.Count > 0)
@@ -389,11 +428,11 @@ namespace Cloudburst.Revit
             {
                 if (p.Memory is MaterialRegion mr) { site.Regions.Add(mr); continue; }
                 var e = El(p); if (e == null) continue;
-                var mesh = GeometryReader.ReadMesh(e, 0.3);
+                var mesh = GeometryReader.ReadMesh(e, 0.3, null, tf);
                 if (mesh != null) site.Regions.Add(new MaterialRegion { Surface = mesh, MaterialId = p.MaterialId ?? Palette?.Default?.Id });
                 else
                 {
-                    var outline = GeometryReader.TopOutline(e);
+                    var outline = GeometryReader.TopOutline(e, tf);
                     if (outline != null) site.Regions.Add(new MaterialRegion { Outline = outline, MaterialId = p.MaterialId ?? Palette?.Default?.Id });
                 }
             }

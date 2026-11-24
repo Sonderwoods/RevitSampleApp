@@ -16,35 +16,36 @@ namespace Cloudburst.Revit
 
         /// <summary>Triangles of all solids/meshes of the element (instances resolved).
         /// <paramref name="minAbsNz"/> &gt; 0 keeps only faces/triangles that are not steep (|normal.Z| ≥ value), e.g. top/bottom faces.</summary>
-        public static TriangleMesh ReadMesh(Element e, double minAbsNz = 0.0, string tag = null)
+        /// <paramref name="tf"/> places elements of a linked model in the host model (RevitLinkInstance.GetTotalTransform).
+        public static TriangleMesh ReadMesh(Element e, double minAbsNz = 0.0, string tag = null, Transform tf = null)
         {
             var b = new TriangleMesh.Builder();
             try
             {
                 var geo = e.get_Geometry(FineOptions());
-                if (geo != null) Collect(geo, b, minAbsNz, 0);
+                if (geo != null) Collect(geo, b, minAbsNz, 0, tf);
             }
             catch (Exception ex) { Logger.Write($"ReadMesh {e?.Id}: {ex.Message}"); }
             return b.IsEmpty ? null : b.Build(tag ?? SafeName(e));
         }
 
         /// <summary>All solids/meshes of several elements in one mesh (e.g. every wall of the model).</summary>
-        public static TriangleMesh ReadMerged(IEnumerable<Element> elements, double minAbsNz = 0.0, string tag = null)
+        public static TriangleMesh ReadMerged(IEnumerable<(Element Element, Transform Tf)> elements, double minAbsNz = 0.0, string tag = null)
         {
             var b = new TriangleMesh.Builder();
-            foreach (var e in elements)
+            foreach (var (e, tf) in elements)
             {
                 try
                 {
                     var geo = e.get_Geometry(FineOptions());
-                    if (geo != null) Collect(geo, b, minAbsNz, 0);
+                    if (geo != null) Collect(geo, b, minAbsNz, 0, tf);
                 }
                 catch (Exception ex) { Logger.Write($"ReadMerged {e?.Id}: {ex.Message}"); }
             }
             return b.IsEmpty ? null : b.Build(tag);
         }
 
-        private static void Collect(GeometryElement geo, TriangleMesh.Builder b, double minAbsNz, int depth)
+        private static void Collect(GeometryElement geo, TriangleMesh.Builder b, double minAbsNz, int depth, Transform tf = null)
         {
             if (geo == null || depth > 6) return;
             foreach (var obj in geo)
@@ -54,19 +55,19 @@ namespace Cloudburst.Revit
                     switch (obj)
                     {
                         case Solid s when s.Faces.Size > 0:
-                            foreach (Face f in s.Faces) AddFace(f, b, minAbsNz);
+                            foreach (Face f in s.Faces) AddFace(f, b, minAbsNz, tf);
                             break;
                         case Mesh m:
-                            AddMesh(m, b, minAbsNz);
+                            AddMesh(m, b, minAbsNz, tf);
                             break;
                         case Face f:
-                            AddFace(f, b, minAbsNz);
+                            AddFace(f, b, minAbsNz, tf);
                             break;
                         case GeometryInstance gi:
-                            Collect(gi.GetInstanceGeometry(), b, minAbsNz, depth + 1);
+                            Collect(gi.GetInstanceGeometry(), b, minAbsNz, depth + 1, tf);
                             break;
                         case GeometryElement ge:
-                            Collect(ge, b, minAbsNz, depth + 1);
+                            Collect(ge, b, minAbsNz, depth + 1, tf);
                             break;
                     }
                 }
@@ -74,21 +75,22 @@ namespace Cloudburst.Revit
             }
         }
 
-        private static void AddFace(Face f, TriangleMesh.Builder b, double minAbsNz)
+        private static void AddFace(Face f, TriangleMesh.Builder b, double minAbsNz, Transform tf)
         {
-            if (minAbsNz > 0 && f is PlanarFace pf && Math.Abs(pf.FaceNormal.Z) < minAbsNz) return;
+            if (minAbsNz > 0 && f is PlanarFace pf && Math.Abs((tf != null ? tf.OfVector(pf.FaceNormal) : pf.FaceNormal).Z) < minAbsNz) return;
             Mesh m = null;
             try { m = f.Triangulate(0.5); } catch { }
-            if (m != null) AddMesh(m, b, minAbsNz);
+            if (m != null) AddMesh(m, b, minAbsNz, tf);
         }
 
-        private static void AddMesh(Mesh m, TriangleMesh.Builder b, double minAbsNz)
+        private static void AddMesh(Mesh m, TriangleMesh.Builder b, double minAbsNz, Transform tf)
         {
             int n = m.NumTriangles;
             for (int i = 0; i < n; i++)
             {
                 var t = m.get_Triangle(i);
                 XYZ p0 = t.get_Vertex(0), p1 = t.get_Vertex(1), p2 = t.get_Vertex(2);
+                if (tf != null) { p0 = tf.OfPoint(p0); p1 = tf.OfPoint(p1); p2 = tf.OfPoint(p2); }
                 if (minAbsNz > 0)
                 {
                     var nrm = (p1 - p0).CrossProduct(p2 - p0);
@@ -142,17 +144,17 @@ namespace Cloudburst.Revit
         }
 
         /// <summary>Outer outline (largest loop) of the upward faces of a floor/roof/toposolid, metres.</summary>
-        public static Polygon2 TopOutline(Element e)
+        public static Polygon2 TopOutline(Element e, Transform tf = null)
         {
             Polygon2 best = null; double bestArea = 0;
             try
             {
                 foreach (var f in Faces(e.get_Geometry(FineOptions()), 0))
                 {
-                    if (!(f is PlanarFace pf) || pf.FaceNormal.Z < 0.3) continue;
+                    if (!(f is PlanarFace pf) || (tf != null ? tf.OfVector(pf.FaceNormal) : pf.FaceNormal).Z < 0.3) continue;
                     foreach (var loop in pf.GetEdgesAsCurveLoops())
                     {
-                        var poly = LoopToPolygon(loop);
+                        var poly = LoopToPolygon(loop, tf);
                         if (poly == null) continue;
                         double a = poly.Area();
                         if (a > bestArea) { best = poly; bestArea = a; }
@@ -163,13 +165,17 @@ namespace Cloudburst.Revit
             return best;
         }
 
-        public static Polygon2 LoopToPolygon(IEnumerable<Curve> loop)
+        public static Polygon2 LoopToPolygon(IEnumerable<Curve> loop, Transform tf = null)
         {
             var xs = new List<double>(); var ys = new List<double>();
             foreach (var c in loop)
             {
                 var pts = c.Tessellate();
-                for (int i = 0; i < pts.Count - 1; i++) { xs.Add(pts[i].X * FtToM); ys.Add(pts[i].Y * FtToM); }
+                for (int i = 0; i < pts.Count - 1; i++)
+                {
+                    var q = tf != null ? tf.OfPoint(pts[i]) : pts[i];
+                    xs.Add(q.X * FtToM); ys.Add(q.Y * FtToM);
+                }
             }
             return xs.Count >= 3 ? new Polygon2(xs.ToArray(), ys.ToArray()) : null;
         }

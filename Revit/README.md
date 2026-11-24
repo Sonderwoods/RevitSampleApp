@@ -52,7 +52,9 @@ The first time Revit starts with the add-in, it asks whether to load it. Choose 
   (e.g. a green roof), matched to the Cloudburst palette by name (English and Danish keywords). So the workflow is:
   give the toposolid, its sub-divisions and the roofs the right Revit materials, then press the button.
 * It reads what is visible in the active 3D or plan view (phases, design options, hidden elements and section boxes are
-  respected). From any other view it reads the whole model. Linked models are not read.
+  respected). From any other view it reads the whole model.
+* **Linked models are always included**: every loaded Revit link (visible in that view) is read in full and placed with
+  the link's position. Unloaded links are skipped with a log message.
 
 Picking by hand still works and overrides it. How each pick role works in Revit:
 
