@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Standalone demo shell: the shared Cloudburst UI next to a 2D top-down map, no Rhino/Revit needed. -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <RootNamespace>Cloudburst.Standalone</RootNamespace>
+    <AssemblyName>Cloudburst.Standalone</AssemblyName>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>false</SelfContained>
+    <PlatformTarget>x64</PlatformTarget>
+    <StartupObject>Cloudburst.Standalone.Program</StartupObject>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\Cloudburst.UI\Cloudburst.UI.csproj" />
+  </ItemGroup>
+</Project>

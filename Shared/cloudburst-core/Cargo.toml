@@ -1,0 +1,29 @@
+[package]
+name = "cloudburst-core"
+version = "0.1.0"
+edition = "2021"
+description = "Rainwater / cloudburst screening engine: grid builder, instant bluespot model (fill-spill), local-inertial 2D shallow-water solver. Shared by Rhino 8, Grasshopper, Revit 2026 (C ABI) and future web (wasm/server)."
+license = "MIT"
+
+[lib]
+name = "cloudburst_core"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+rayon = { version = "1.10", optional = true }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tiff = "0.9"
+
+[features]
+default = ["parallel"]
+parallel = ["rayon"]
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "unwind"
+
+[profile.test]
+opt-level = 3

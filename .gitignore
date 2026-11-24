@@ -55,4 +55,12 @@ CodeCoverage/
 *.VisualState.xml
 TestResult.xml
 nunit-*.xml
+
+# Rust
+target/
+dist/
 /.vs
+
+# Tauri
+Desktop/src-tauri/target/
+Desktop/src-tauri/gen/

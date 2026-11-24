@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- Managed façade over the Rust engine (Shared/cloudburst-core, C ABI).
+       net7.0 so it loads in Rhino 8 (.NET 7/8) and Revit 2026 (.NET 8). -->
+  <PropertyGroup>
+    <TargetFramework>net7.0</TargetFramework>
+    <RootNamespace>Cloudburst</RootNamespace>
+    <AssemblyName>Cloudburst.Net</AssemblyName>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <NativeDir>$(MSBuildThisFileDirectory)..\cloudburst-core\target\</NativeDir>
+  </PropertyGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="..\cloudburst-core\data\palette.json" LogicalName="Cloudburst.palette.json" Link="Materials\palette.json" />
+  </ItemGroup>
+  <!-- Native engine: Windows DLL (cargo build release target x86_64-pc-windows-gnu or msvc) and Linux .so for CI tests. -->
+  <ItemGroup>
+    <None Include="$(NativeDir)x86_64-pc-windows-gnu\release\cloudburst_core.dll" Condition="Exists('$(NativeDir)x86_64-pc-windows-gnu\release\cloudburst_core.dll')" Link="cloudburst_core.dll" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NativeDir)x86_64-pc-windows-msvc\release\cloudburst_core.dll" Condition="!Exists('$(NativeDir)x86_64-pc-windows-gnu\release\cloudburst_core.dll') And Exists('$(NativeDir)x86_64-pc-windows-msvc\release\cloudburst_core.dll')" Link="cloudburst_core.dll" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NativeDir)release\cloudburst_core.dll" Condition="!Exists('$(NativeDir)x86_64-pc-windows-gnu\release\cloudburst_core.dll') And !Exists('$(NativeDir)x86_64-pc-windows-msvc\release\cloudburst_core.dll') And Exists('$(NativeDir)release\cloudburst_core.dll')" Link="cloudburst_core.dll" CopyToOutputDirectory="PreserveNewest" />
+    <!-- Last resort: prebuilt engine committed to the repo, so the solution builds and debugs without Rust installed. -->
+    <None Include="$(MSBuildThisFileDirectory)..\cloudburst-core\prebuilt\win-x64\cloudburst_core.dll" Condition="!Exists('$(NativeDir)x86_64-pc-windows-gnu\release\cloudburst_core.dll') And !Exists('$(NativeDir)x86_64-pc-windows-msvc\release\cloudburst_core.dll') And !Exists('$(NativeDir)release\cloudburst_core.dll')" Link="cloudburst_core.dll" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NativeDir)release\libcloudburst_core.so" Condition="Exists('$(NativeDir)release\libcloudburst_core.so')" Link="libcloudburst_core.so" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="$(NativeDir)release\libcloudburst_core.dylib" Condition="Exists('$(NativeDir)release\libcloudburst_core.dylib')" Link="libcloudburst_core.dylib" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>
