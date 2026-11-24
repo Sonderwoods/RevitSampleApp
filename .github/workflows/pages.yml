@@ -6,7 +6,7 @@ name: pages
 on:
   push:
     branches: [main, master, claude/peaceful-wozniak-nmclxh]
-    paths: ['Web/**', '.github/workflows/pages.yml']
+    paths: ['Web/**', 'tools/inject_dhm_key.py', '.github/workflows/pages.yml']
   workflow_dispatch:
 
 permissions:
@@ -25,6 +25,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/configure-pages@v5
+      - name: Built-in DHM API key (secret DHM_API_KEY → Web/js/config.js)
+        env:
+          DHM_API_KEY: ${{ secrets.DHM_API_KEY }}
+        run: python3 tools/inject_dhm_key.py
       - uses: actions/upload-pages-artifact@v3
         with:
           path: Web

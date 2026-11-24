@@ -257,12 +257,17 @@ namespace Cloudburst.UI.ViewModels
         public string Id => Info?.Id;
         public string Name => Info?.Name;
         public string Description => Info?.Description;
-        public bool IsAvailable { get; set; } = true;
+        private bool _isAvailable = true;
+        public bool IsAvailable { get => _isAvailable; set { if (Set(ref _isAvailable, value)) { Raise(nameof(UnavailableHint)); Raise(nameof(CanDownload)); } } }
         public bool IsReal => Info?.IsReal ?? false;
         public bool IsBeforeAfter => !string.IsNullOrWhiteSpace(Info?.CompareWith);
         /// <summary>"Synthetic", "Real site" or "Before / after".</summary>
         public string Badge => IsBeforeAfter ? "Before / after" : IsReal ? "Real site" : "Synthetic";
-        public string UnavailableHint => IsAvailable ? null : "Download terrain: python tools/fetch_dhm.py --token <Dataforsyningen token>";
+        /// <summary>Terrain missing but a DHM key is available: loading downloads it first.</summary>
+        public bool CanDownload => !IsAvailable && IsReal && Cloudburst.Demo.DhmClient.HasKey;
+        public string UnavailableHint => IsAvailable ? null
+            : CanDownload ? "Terrain is downloaded from Danmarks Højdemodel when you load this site."
+            : "Needs a DHM API key: set the DHM_API_KEY environment variable (free key at portal.datafordeler.dk) or run tools/fetch_dhm.py";
         public string CompareHint { get; set; }
         public ICommand LoadCommand { get; set; }
     }

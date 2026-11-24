@@ -21,4 +21,22 @@
     <None Include="$(NativeDir)release\libcloudburst_core.so" Condition="Exists('$(NativeDir)release\libcloudburst_core.so')" Link="libcloudburst_core.so" CopyToOutputDirectory="PreserveNewest" />
     <None Include="$(NativeDir)release\libcloudburst_core.dylib" Condition="Exists('$(NativeDir)release\libcloudburst_core.dylib')" Link="libcloudburst_core.dylib" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
+  <!-- Built-in DHM API key (Datafordeler) for in-app terrain downloads. CI passes the GitHub secret DHM_API_KEY as an
+       environment variable (MSBuild sees it as $(DHM_API_KEY)); locally: dotnet build -p:DhmApiKey=... or set DHM_API_KEY.
+       Empty when not set: users then point Cloudburst at their own key (see Demo/DhmClient.cs). -->
+  <PropertyGroup>
+    <DhmApiKey Condition="'$(DhmApiKey)' == ''">$(DHM_API_KEY)</DhmApiKey>
+  </PropertyGroup>
+  <Target Name="GenerateDhmBuildKey" BeforeTargets="CoreCompile">
+    <PropertyGroup>
+      <_DhmKeyLiteral>$(DhmApiKey.Trim().Replace('', '\').Replace('"', '"'))</_DhmKeyLiteral>
+      <_DhmKeyFile>$(IntermediateOutputPath)DhmBuildKey.g.cs</_DhmKeyFile>
+    </PropertyGroup>
+    <WriteLinesToFile File="$(_DhmKeyFile)" Overwrite="true" WriteOnlyWhenDifferent="true"
+                      Lines="// &lt;auto-generated/&gt; Built-in DHM API key from DHM_API_KEY at build time%3B do not commit.;namespace Cloudburst.Demo { internal static class DhmBuildKey { internal const string Value = &quot;$([MSBuild]::Escape($(_DhmKeyLiteral)))&quot;%3B } }" />
+    <ItemGroup>
+      <Compile Include="$(_DhmKeyFile)" />
+      <FileWrites Include="$(_DhmKeyFile)" />
+    </ItemGroup>
+  </Target>
 </Project>
