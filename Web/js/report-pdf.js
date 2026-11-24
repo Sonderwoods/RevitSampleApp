@@ -263,6 +263,11 @@ function presetLabel(r, t) { return r ? (t('presetNames')[r.presetId] || r.prese
 function sewerLabel(s, t) { return s == null ? t('notGiven') : [t('sewerNone'), t('sewerCombined'), t('sewerSeparate')][s.mode] ?? `mode ${s.mode}`; }
 function moistLabel(m, t) { return m == null ? t('notGiven') : [t('moistDry'), t('moistMoist'), t('moistWet')][m.mode] ?? `${m.mode}`; }
 
+function designText(o, t) {
+  const d = o.inputs.design || [];
+  return d.length ? d.map((x) => `${x.from || t('groundTo')} -> ${x.to}`).join('; ') : t('designAsDrawn');
+}
+
 function siteSection(L, ctx, o, size = 8.5) {
   const { t, nf, f } = ctx; const s = o.site; const g = o.inputs.grid;
   L.h2(t('secSite'));
@@ -313,6 +318,7 @@ function rainSection(L, ctx, o) {
   rows.push([t('sewer'), sewerLabel(i.sewer, t)]);
   rows.push([t('moisture'), moistLabel(i.moisture, t)]);
   rows.push([t('soil'), t('soilDefault')]);
+  rows.push([t('designChanges'), designText(o, t)]);
   rows.push([t('model'), o.dynamic ? `${t('modelInstant')}; ${t('modelDynamic')}` : t('modelInstant')]);
   if (o.dynamic) rows.push([t('dynCell'), `${nf.fixed(o.dynamic.cellSizeM, 1)} m · ${t('dynSim')} ${nf.fixed(o.dynamic.simulatedMin)} min`]);
   kvTable(L, rows);
@@ -626,6 +632,7 @@ function comparisonReport(L, ctx, model, records, internals) {
     inRow(t('rainDepth'), (o) => (o.inputs.rain ? `${nf.smart(o.inputs.rain.depthMm)} mm` : '–')),
     inRow(t('climateFactor'), (o) => (o.inputs.rain ? nf.fixed(o.inputs.rain.climateFactor, 2) : '–')),
     inRow(t('designDepth'), (o) => (o.inputs.rain ? `${nf.smart(o.inputs.rain.designDepthMm)} mm` : '–')),
+    inRow(t('designChanges'), (o) => designText(o, t)),
     inRow(t('sewer'), (o) => sewerLabel(o.inputs.sewer, t)), inRow(t('moisture'), (o) => moistLabel(o.inputs.moisture, t)), inRow(t('soil'), () => 'JB-6'),
     inRow(t('cellSize'), (o) => `${nf.fixed(o.inputs.grid.cellSizeM, 2)} m`),
     inRow(t('dynCell'), (o) => (o.dynamic ? `${nf.fixed(o.dynamic.cellSizeM, 1)} m, ${nf.fixed(o.dynamic.simulatedMin)} min` : '–')),

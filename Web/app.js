@@ -6,7 +6,9 @@ import { DEPTH, VELOCITY, HAZARD, TPEAK, DIFF, LAYERS } from './js/colors.js';
 import { baseCanvas, buildingsCanvas, overlayCanvas, materialCanvas, materialsPresent, sampleAt, cellAt, differenceArray } from './js/raster.js';
 import { MapView, roundRect } from './js/mapview.js';
 import { openDhmPicker } from './js/dhm.js';
-import { openReportDialog, reportOptionMeta } from './js/report.js'; // [report-hook] PDF report (see js/report.js)
+import { addSiteSource, addExportAction, siteSources, exportActions, hooks } from './js/hooks.js';
+import { help, term, TERMS, installTips } from './js/terms.js';
+import { reportOptionMeta } from './js/report.js'; // [report-hook] registers the PDF report export action (see js/report.js)
 
 // ------------------------------------------------------------------------------------------------ constants
 const LOCATIONS = {
@@ -17,17 +19,29 @@ const LOCATIONS = {
   dk_odense: 'Odense · Munke Mose',
 };
 const SEWER = [
-  { v: 0, label: 'None', long: 'No sewer' },
-  { v: 1, label: 'Combined', sub: '34 mm', long: 'Combined sewer (34 mm)' },
-  { v: 2, label: 'Separate', sub: '29 mm', long: 'Separate sewer (29 mm)' },
+  { v: 0, label: 'No sewer', sub: 'all runs off', long: 'No sewer' },
+  { v: 1, label: 'Combined', sub: 'takes 34 mm', long: 'Combined sewer (34 mm)' },
+  { v: 2, label: 'Separate', sub: 'takes 29 mm', long: 'Separate sewer (29 mm)' },
 ];
-const PRESET_LABEL = { t10: 'T = 10 years', t100: 'T = 100 years', test2011: 'Cph. 2011 test', box83: 'Box 83 mm / 4 h' };
-const MOIST = [{ v: 0, label: 'Dry' }, { v: 1, label: 'Moist' }, { v: 2, label: 'Wet' }];
+// Plain names first, the technical term second.
+const PRESET_LABEL = {
+  t10: { name: 'Heavy rain', sub: '10-year storm (T = 10), 4 h' },
+  t100: { name: 'Cloudburst', sub: '100-year storm (T = 100), 4 h' },
+  test2011: { name: 'Copenhagen, 2 July 2011', sub: 'the real storm, 2 h' },
+  box83: { name: 'Steady rain', sub: 'even intensity (box rain), 4 h' },
+};
+const presetName = (p) => (PRESET_LABEL[p.id] ? PRESET_LABEL[p.id].name : p.name);
+const MOIST = [{ v: 0, label: 'Dry' }, { v: 1, label: 'Normal', long: 'Moist' }, { v: 2, label: 'Wet' }];
 const DURATIONS = [
-  { id: 'full30', label: 'Event + 30 min', after: 30 },
-  { id: 'full', label: 'Event only', after: 0 },
-  { id: 'first60', label: 'First 60 min', after: 0, cut: 60 },
+  { id: 'full30', label: 'Storm + 30 min', after: 30 },
+  { id: 'full', label: 'Storm only', after: 0 },
+  { id: 'first60', label: 'First hour', after: 0, cut: 60 },
 ];
+const LS_HINT = 'cb.firstRunHint.dismissed';
+const store = {
+  get(k) { try { return localStorage.getItem(k); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch { /* private mode: fine */ } },
+};
 const withMin = (ramp, min) => ({ ...ramp, min, index: (v) => (v >= min ? ramp.index(v) : -1) });
 const DEPTH_DYN = withMin(DEPTH, 0.03);
 
@@ -40,9 +54,13 @@ const S = {
   layer: 'depth', source: 'instant', showPaths: true, showLabels: true,
   dyn: null, dynRun: null, dynCell: 2, dynDuration: 'full30', frame: -1, playing: 0,
   options: [], compare: null,
-  retention: { dischargeLSHa: 1, returnPeriod: 10, result: null },
+  retention: { dischargeLSHa: 1, returnPeriod: 10, result: null, open: false },
+  legendCollapsed: typeof window !== 'undefined' && window.innerHeight < 760,
   view3d: false, v3: null,
   thumbs: new Map(),
+  surfaceSwap: {},          // original material id -> replacement id (design change on the sample's surface regions)
+  groundMaterial: null,     // palette id for cells no region covers (null = engine default)
+  speedK: 1,                // learned ratio actual/estimated run time, so the next estimate is honest
 };
 let map = null;
 
@@ -54,6 +72,9 @@ async function boot() {
   S.info = S.cb.info;
   $('#engineChip').innerHTML = `<span class="dot ok"></span>Engine ${S.info.version} · WebAssembly`;
   $('#brand').onclick = () => { location.hash = '#/'; };
+  $('#startExample').onclick = () => { location.hash = '#/site/demo_block'; };
+  registerBuiltIns(); installTips();
+  hooks.addEventListener('change', () => { renderSources(); if (S.grid) renderLeft(); });
   renderGallery();
   setupGlobalDrop();
   $('#fileInput').addEventListener('change', (e) => { const f = e.target.files[0]; e.target.value = ''; if (f) onTerrainFile(f); });
@@ -77,9 +98,11 @@ function sampleInfo(id) { return S.info.samples.find((s) => s.id === id); }
 
 // ------------------------------------------------------------------------------------------------ gallery
 function badgeFor(s) {
-  if (s.kind === 'real') return h('span.badge.real', 'Real site');
+  if (s.kind === 'custom') return h('span.badge.real', 'Your terrain');
+  if (s.kind === 'real') return h('span.badge.real', 'Real site · needs terrain');
   if (s.compareWith) return h('span.badge.pair', 'Before / after pair');
-  return h('span.badge.synth', 'Synthetic');
+  if (s.id === 'demo_block') return h('span.badge.start', 'Start here');
+  return h('span.badge.synth', 'Example');
 }
 function realMeta(s) {
   const [x0, y0, x1, y1] = s.bbox; const ll = utm32ToLatLon((x0 + x1) / 2, (y0 + y1) / 2);
@@ -98,7 +121,7 @@ function renderGallery() {
       const r = realMeta(s);
       meta = h('div.card-meta', h('span.meta-item', { html: `${icon('pin', 13)} ${r.loc}` }), h('span.meta-item.mono', `${r.ll.lat.toFixed(3)}°N ${r.ll.lon.toFixed(3)}°E`));
     } else {
-      meta = h('div.card-meta', h('span.meta-item', { html: `${icon('drop', 13)} ${p.name}` }));
+      meta = h('div.card-meta', h('span.meta-item', { html: `${icon('drop', 13)} ${presetName(p)} rain` }));
     }
     const card = h('button.card', { onclick: () => { location.hash = `#/site/${s.id}`; }, dataset: { id: s.id } },
       thumb, badgeFor(s),
@@ -106,26 +129,43 @@ function renderGallery() {
     (s.kind === 'real' ? real : syn).append(card);
     if (s.kind === 'real') drawRealThumb(thumb, s);
   }
-  // custom site card
-  const drop = h('div.card.custom-card', { tabIndex: 0, onclick: () => $('#fileInput').click() },
-    h('div.custom-inner',
-      h('div.custom-icon', { html: icon('upload', 26) }),
-      h('h3', 'Custom site'),
-      h('p', 'Drop any GeoTIFF or ESRI ASCII terrain here, or click to browse.'),
-      h('div.card-meta', h('span.meta-item.mono', '.tif  .tiff  .asc'))));
-  const pick = h('button.card.custom-card.dhm-card', { onclick: () => openDhmPicker(openFetchedTerrain) },
-    h('div.custom-inner',
-      h('div.custom-icon', { html: icon('pin', 26) }),
-      h('h3', 'Pick a location'),
-      h('p', 'Search an address or click the map, paste your Datafordeler / Dataforsyningen key, and the DHM terrain is fetched straight into the browser.'),
-      h('div.card-meta', h('span.meta-item.mono', 'DHM/Terræn · 0.4 m'))));
-  real.append(pick, drop);
-  const nSyn = S.info.samples.filter((s) => s.kind !== 'real').length, nReal = S.info.samples.length - nSyn;
-  $('#heroStats').innerHTML = '';
-  $('#heroStats').append(
-    stat('Sample sites', nSyn), stat('Real DK sites', nReal),
-    stat('Surface materials', S.info.palette.materials.length), stat('Rain presets', S.info.presets.length));
-  function stat(l, v) { return h('div.hstat', h('b', String(v)), h('span', l)); }
+  renderSources();
+}
+
+// Built-in site sources and export actions, registered through the same hooks other modules use (js/hooks.js).
+function registerBuiltIns() {
+  addSiteSource({
+    id: 'dhm', order: 10, icon: 'pin', title: 'Find a place in Denmark', tag: 'Needs a free API key',
+    description: 'Search an address, place a square on the map, and the official terrain (DHM) is downloaded for you.',
+    open: (ctx) => openDhmPicker(ctx.openTerrain),
+  });
+  addSiteSource({
+    id: 'file', order: 20, icon: 'upload', title: 'Upload a terrain file', tag: '.tif  .tiff  .asc',
+    description: 'Drop a GeoTIFF or ESRI ASCII elevation file anywhere on this page, or click to choose one.',
+    open: () => $('#fileInput').click(),
+  });
+  addExportAction({ id: 'png', order: 10, icon: 'image', label: 'Map image (PNG)', description: 'The current map with legend and assumptions, for slides and sketches.', run: exportPNG, enabled: () => (S.grid ? true : 'Load a site first') });
+  addExportAction({ id: 'json', order: 20, icon: 'json', label: 'Results data (JSON)', description: 'All numbers, settings and saved options, for engineers and spreadsheets.', run: exportJSON, enabled: () => (S.grid ? true : 'Load a site first') });
+}
+
+/** Context handed to hook entries (site sources, export actions). */
+function appContext() {
+  return {
+    state: S, site: S.site, grid: S.grid, instant: S.instant, dynamic: S.dyn, compare: S.compare, options: S.options, settings: S.settings,
+    captionText, legend: legendItems, map, engine: S.cb, toast, openTerrain: openFetchedTerrain,
+  };
+}
+
+function renderSources() {
+  const wrap = $('#cardsSources'); if (!wrap) return; wrap.innerHTML = '';
+  for (const src of siteSources()) {
+    wrap.append(h('button.card.custom-card.source-card', { dataset: { source: src.id }, onclick: () => src.open(appContext()) },
+      h('div.custom-inner',
+        h('div.custom-icon', { html: icon(src.icon || 'file', 26) }),
+        h('h3', src.title),
+        h('p', src.description),
+        src.tag ? h('div.card-meta', h('span.meta-item', src.tag)) : null)));
+  }
 }
 
 async function makeThumbs() {
@@ -225,12 +265,12 @@ async function openSite(id, custom = null) {
   Object.assign(S.settings, { presetId: p.id, rainDepthMm: p.depthMm, climateFactor: p.climateFactor });
   $('#gallery').classList.add('hidden'); $('#workspace').classList.remove('hidden');
   $('#crumbs').innerHTML = '';
-  $('#crumbs').append(h('a', { href: '#/', html: `${icon('back', 14)} Samples` }), h('span.sep', '/'), h('span.cur', S.site.name), badgeFor({ ...info, kind: S.site.kind === 'custom' ? 'real' : info.kind }));
+  $('#crumbs').append(...[h('a', { href: '#/', html: `${icon('back', 14)} All sites` }), h('span.sep', '/'), h('span.cur', S.site.name), S.site.kind === 'synthetic' ? null : h('span.badge.real', S.site.kind === 'custom' ? 'Your terrain' : 'Real site')].filter(Boolean));
   ensureMap();
   renderLeft(); renderRight(); renderMapChrome();
   if (S.site.kind === 'synthetic') {
     S.sampleJson = await S.cb.sample(id);
-    S.siteDesc = { sample: id };
+    S.siteDesc = siteDescription();
     await loadGrid();
   } else if (custom) {
     S.siteDesc = { terrainBytes: custom.bytes };
@@ -245,7 +285,7 @@ function closeSite() {
   stopPlay();
   if (S.dynRun) { S.dynRun.cancel(); S.dynRun = null; }
   if (S.grid) S.cb.freeGrid(S.grid).catch(() => {});
-  Object.assign(S, { site: null, siteDesc: null, sampleJson: null, grid: null, scene: null, instant: null, dyn: null, frame: -1, source: 'instant', compare: null, options: [], layer: 'depth', matCanvas: null });
+  Object.assign(S, { site: null, siteDesc: null, sampleJson: null, grid: null, scene: null, instant: null, dyn: null, frame: -1, source: 'instant', compare: null, options: [], layer: 'depth', matCanvas: null, surfaceSwap: {}, groundMaterial: null });
   S.retention.result = null;
   if (map) map.setScenes([]);
   $('#siteDrop').classList.add('hidden');
@@ -257,24 +297,50 @@ function ensureMap() {
   window.__map = map;
 }
 
-async function loadGrid() {
+/** The engine's site description: the sample (or terrain bytes) plus the user's surface swaps. */
+function siteDescription() {
+  if (S.site.kind === 'synthetic') {
+    const surfaces = ((S.sampleJson && S.sampleJson.surfaces) || []).filter((r) => S.surfaceSwap[r.material]).map((r) => ({ ...r, material: S.surfaceSwap[r.material] }));
+    return surfaces.length ? { sample: S.site.id, surfaces } : { sample: S.site.id };
+  }
+  return { terrainBytes: S.siteDesc.terrainBytes };
+}
+function gridSettings(cellSize) {
+  const st = { cellSize };
+  if (S.groundMaterial) st.defaultMaterial = S.info.palette.materials.findIndex((m) => m.id === S.groundMaterial);
+  return st;
+}
+/** Rebuild the grid after a design change (surfaces), keeping the view and cell size. */
+async function applyDesignChange() {
+  if (!S.grid) return;
+  S.siteDesc = siteDescription(); S.matCanvas = null;
+  await loadGrid({ refit: false, cellSizes: [S.grid.dx] });
+  renderLeft(); updateDynStale();
+}
+
+async function loadGrid({ refit = true, cellSizes = null } = {}) {
   setBusy(true, 'Building grid…');
   let grid = null, lastErr = null;
-  const site = S.site;
-  for (const cellSize of S.site.kind === 'synthetic' ? [1] : [1, 2, 4, 8]) {
+  const site = S.site; const old = S.grid;
+  for (const cellSize of cellSizes || (S.site.kind === 'synthetic' ? [1] : [1, 2, 4, 8])) {
     try {
-      grid = await S.cb.buildGrid(S.siteDesc, { cellSize });
+      grid = await S.cb.buildGrid(S.siteDesc, gridSettings(cellSize));
       if (grid.nx * grid.ny > 900000 && cellSize < 8) { S.cb.freeGrid(grid); grid = null; continue; }
       break;
     } catch (e) { lastErr = e; }
   }
   if (S.site !== site) { if (grid) S.cb.freeGrid(grid); return; }
-  if (!grid) { setBusy(false); toast(`Could not read terrain: ${lastErr ? lastErr.message : 'unknown error'}`, 'error'); showSiteDrop(); return; }
+  if (!grid) {
+    setBusy(false);
+    toast(`Could not read this terrain file (${lastErr ? lastErr.message : 'unknown error'}). Use a GeoTIFF or ESRI ASCII elevation file in metres.`, 'error');
+    if (!old) showSiteDrop(); return;
+  }
+  if (old) S.cb.freeGrid(old).catch(() => {});
   S.grid = grid;
   $('#siteDrop').classList.add('hidden');
   const base = baseCanvas(grid, S.info.palette);
   S.scene = { grid, base, buildingsVec: S.sampleJson ? S.sampleJson.buildings : null, buildingsRaster: S.sampleJson ? null : buildingsCanvas(grid) };
-  map.setScenes([S.scene]); map.fit();
+  map.setScenes([S.scene]); if (refit) map.fit();
   if (S.view3d && S.v3) S.v3.setSite(grid, base, S.scene.buildingsVec);
   renderLeft(); renderRight(); renderMapChrome();
   await runInstantNow();
@@ -286,33 +352,38 @@ function showSiteDrop() {
   const el = $('#siteDrop'); const s = S.site.info; el.innerHTML = ''; el.classList.remove('hidden');
   const isReal = s.bbox;
   const card = h('div.site-card');
+  card.append(h('div.eyebrow', isReal ? 'Real site · one more step' : 'Terrain needed'), h('h2', S.site.name), h('p.muted', s.description),
+    h('p', 'This site needs its terrain: the ground heights the water runs over. Choose one:'));
+  if (isReal) {
+    const [x0, y0, x1, y1] = s.bbox; const ll = utm32ToLatLon((x0 + x1) / 2, (y0 + y1) / 2);
+    card.append(h('div.choice',
+      h('span.choice-n', '1'),
+      h('div.choice-body',
+        h('b', 'Download it from the Danish elevation model'),
+        h('span.muted', { html: 'Needs a free API key from <a href="https://portal.datafordeler.dk/hjem" target="_blank" rel="noopener">Datafordeler</a> (log in with MitID or e-mail). The download takes a few seconds.' }),
+        h('button.btn.primary.fetch-dhm', {
+          html: `${icon('download', 15)} Download terrain…`,
+          onclick: () => openDhmPicker(async ({ bytes }) => { S.siteDesc = { terrainBytes: bytes }; await loadGrid(); },
+            { lat: ll.lat, lon: ll.lon, size: Math.round(x1 - x0), name: S.site.name }),
+        }))));
+  }
+  const dz = h('div.dropzone', { tabIndex: 0, role: 'button', onclick: () => $('#fileInput').click(), onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); $('#fileInput').click(); } } },
+    h('div.dz-icon', { html: icon('upload', 28) }),
+    h('div.dz-title', 'Drop a terrain file here'),
+    h('div.dz-sub', 'or click to choose · GeoTIFF (.tif) or ESRI ASCII (.asc), heights in metres'),
+    s.dhmFile ? h('div.dz-file', { html: `${icon('file', 14)} expected file: <span class="mono">${s.dhmFile}</span>` }) : null);
+  card.append(h('div.choice', h('span.choice-n', isReal ? '2' : '1'), h('div.choice-body', h('b', 'Use a terrain file you already have'), dz)));
+  card.append(h('p.muted.small', h('span', 'No key and no file? '), h('a', { href: '#/site/demo_block' }, 'Open an example site instead'), '.'));
   if (isReal) {
     const r = realMeta(s);
-    card.append(
-      h('div.eyebrow', 'Real site · terrain required'),
-      h('h2', S.site.name),
-      h('p.muted', s.description),
+    card.append(h('details.advanced', h('summary', 'Location details'),
       h('div.loc-grid',
         h('div', h('label', 'Location'), h('b', { html: `${icon('pin', 14)} ${r.loc}` })),
         h('div', h('label', 'WGS84'), h('b.mono', fmtLatLon(r.ll))),
         h('div', h('label', 'Extent (EPSG:25832)'), h('b.mono', `${s.bbox[0]}, ${s.bbox[1]} → ${s.bbox[2]}, ${s.bbox[3]}`)),
-        h('div', h('label', 'Size'), h('b', `${r.w} × ${r.hgt} m`))));
+        h('div', h('label', 'Size'), h('b', `${r.w} × ${r.hgt} m`))),
+      s.dhmFile ? h('div.hint', { html: `${icon('terminal', 14)} <span>For developers: <code>tools/fetch_dhm.py</code> downloads this file; files placed in <code>Web/data/</code> load automatically.</span>` }) : null));
   }
-  const dz = h('div.dropzone', { onclick: () => $('#fileInput').click() },
-    h('div.dz-icon', { html: icon('upload', 28) }),
-    h('div.dz-title', 'Drop DHM GeoTIFF / ASC here'),
-    h('div.dz-sub', 'or click to browse'),
-    s.dhmFile ? h('div.dz-file', { html: `${icon('file', 14)} <span class="mono">${s.dhmFile}</span>` }) : null);
-  card.append(dz);
-  if (isReal) {
-    const [x0, y0, x1, y1] = s.bbox; const ll = utm32ToLatLon((x0 + x1) / 2, (y0 + y1) / 2);
-    card.append(h('button.btn.primary.fetch-dhm', {
-      html: `${icon('download', 15)} Fetch terrain with API key`,
-      onclick: () => openDhmPicker(async ({ bytes }) => { S.siteDesc = { terrainBytes: bytes }; await loadGrid(); },
-        { lat: ll.lat, lon: ll.lon, size: Math.round(x1 - x0), name: S.site.name }),
-    }));
-  }
-  if (s.dhmFile) card.append(h('div.hint', { html: `${icon('terminal', 14)} <span>Produce it with <code>tools/fetch_dhm.py</code> (Dataforsyningen token, DHM/Terræn 0.4 m). Files placed in <code>Web/data/</code> load automatically.</span>` }));
   el.append(card);
   for (const ev of ['dragenter', 'dragover']) dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.add('over'); });
   dz.addEventListener('dragleave', () => dz.classList.remove('over'));
@@ -350,7 +421,7 @@ async function openFetchedTerrain({ bytes, info }) {
 }
 
 async function onTerrainFile(file) {
-  if (!/\.(tif|tiff|asc|txt)$/i.test(file.name)) { toast('Please drop a GeoTIFF (.tif) or ESRI ASCII (.asc) terrain file', 'error'); return; }
+  if (!/\.(tif|tiff|asc|txt)$/i.test(file.name)) { toast(`“${file.name}” is not a terrain file. Use a GeoTIFF (.tif) or ESRI ASCII (.asc) elevation file.`, 'error'); return; }
   const bytes = new Uint8Array(await file.arrayBuffer());
   if (S.site && S.site.kind === 'real' && !S.grid) {
     S.siteDesc = { terrainBytes: bytes };
@@ -378,10 +449,12 @@ async function runInstantNow() {
   try {
     const r = await S.cb.runInstant(grid, scenarioInstant());
     if (grid !== S.grid) return;
+    const first = !S.instant;
     S.instant = r; S.instMs = performance.now() - t0;
-    refreshMap(); updateResults(); renderCaption();
+    refreshMap(); updateResults(); renderCaption(); updateQuickStatus(); showFirstRunHint();
+    if (first && !S.compare) renderLeft(); // enables Save option / Compare pair
     pulseLive();
-  } catch (e) { console.error(e); toast(`Instant model failed: ${e.message}`, 'error'); }
+  } catch (e) { console.error(e); toast(`The quick check failed: ${e.message}. Try another rain or reload the site.`, 'error'); }
   finally {
     S.instBusy = false;
     if (S.instPending) { S.instPending = false; runInstantNow(); } else setBusy(false);
@@ -441,95 +514,121 @@ function refreshMap() {
 function renderMapChrome() {
   const seg = $('#layerSeg'); seg.innerHTML = '';
   if (S.compare) {
-    seg.append(h('span.seg-label', 'Compare'));
-    for (const [id, label, ic] of [['swipe', 'Swipe', 'swipe'], ['diff', 'Difference', 'diff']]) {
-      seg.append(h(`button.seg-btn${S.compare.mode === id ? '.on' : ''}`, { html: `${icon(ic, 14)} ${label}`, onclick: () => { S.compare.mode = id; renderMapChrome(); refreshMap(); } }));
+    seg.append(h('span.seg-label', 'Show'));
+    for (const [id, label, ic, tip] of [['diff', 'What changed', 'diff', 'One map: green where B is drier, red where B is wetter'], ['swipe', 'Side by side', 'swipe', 'A on the left, B on the right; drag the divider']]) {
+      seg.append(h(`button.seg-btn${S.compare.mode === id ? '.on' : ''}`, { 'aria-pressed': String(S.compare.mode === id), dataset: { tip }, html: `${icon(ic, 14)} ${label}`, onclick: () => { S.compare.mode = id; renderMapChrome(); refreshMap(); renderLeft(); } }));
     }
   } else {
-    const src = h('div.subseg');
-    for (const [id, label] of [['instant', 'Instant'], ['dynamic', 'Dynamic']]) {
+    const src = h('div.subseg', { role: 'group', 'aria-label': 'Which model' });
+    for (const [id, label, tip] of [['instant', 'Quick check', TERMS.instant], ['dynamic', 'Simulation', S.dyn ? TERMS.dynamic : 'Run the full simulation first (step 4, Run)']]) {
       const dis = id === 'dynamic' && !S.dyn;
       src.append(h(`button.seg-btn.src${S.source === id ? '.on' : ''}${dis ? '.dis' : ''}`, {
-        title: dis ? 'Run a dynamic simulation first' : '', html: `${icon(id === 'instant' ? 'bolt' : 'wave', 14)} ${label}`,
-        onclick: () => { if (dis) { toast('Run a dynamic simulation first (left panel, step 3)'); return; } setSource(id); },
+        'aria-pressed': String(S.source === id), 'aria-disabled': dis ? 'true' : null, dataset: { tip }, html: `${icon(id === 'instant' ? 'bolt' : 'wave', 14)} ${label}`,
+        onclick: () => { if (dis) { toast('Run the full simulation first: step 4 in the left panel.'); focusStep('run'); return; } setSource(id); },
       }));
     }
     seg.append(src, h('span.vsep'));
     for (const [id, L] of Object.entries(LAYERS)) {
-      const dis = L.needsDynamic && !(S.dyn && S.source === 'dynamic');
+      const dis = L.needsDynamic && !S.dyn;
       seg.append(h(`button.seg-btn${S.layer === id ? '.on' : ''}${dis ? '.dis' : ''}`, {
-        dataset: { layer: id }, title: dis ? 'Needs dynamic results' : '', textContent: L.label,
+        dataset: { layer: id, tip: dis ? `${L.tip.replace(' (full simulation only)', '')}. Needs the full simulation (step 4).` : L.tip },
+        'aria-pressed': String(S.layer === id), 'aria-disabled': dis ? 'true' : null, textContent: L.label,
         onclick: () => {
-          if (dis) { if (S.dyn) { setSource('dynamic'); setLayer(id); } else toast(`${L.label} needs a dynamic simulation, run it in step 3`); return; }
+          if (dis) { toast(`${L.label} comes from the full simulation. Run it in step 4.`); focusStep('run'); return; }
+          if (L.needsDynamic && S.source !== 'dynamic') { S.layer = id; setSource('dynamic'); return; }
           setLayer(id);
         },
       }));
     }
   }
   const tb = $('#toggleBar'); tb.innerHTML = '';
-  tb.append(toggleBtn('Flow paths', S.showPaths, (v) => { S.showPaths = v; map.showPaths = v; map.request(); }, 'wave'),
-    toggleBtn('Labels', S.showLabels, (v) => { S.showLabels = v; map.showLabels = v; map.request(); }, 'target'));
+  tb.append(toggleBtn('Flow lines', S.showPaths, (v) => { S.showPaths = v; map.showPaths = v; map.request(); renderLegend(); }, TERMS.flowPaths),
+    toggleBtn('Labels', S.showLabels, (v) => { S.showLabels = v; map.showLabels = v; map.request(); renderLegend(); }, 'Volume and depth of the largest ponds'));
   tb.classList.toggle('hidden', !!S.compare);
   const vs = $('#viewSeg'); vs.innerHTML = '';
-  vs.append(h(`button${!S.view3d ? '.on' : ''}`, { title: 'Top-down map', html: `${icon('map', 16)}2D`, onclick: () => toggle3D(false) }),
-    h(`button${S.view3d ? '.on' : ''}`, { title: '3D view (three.js)', html: `${icon('cube', 16)}3D`, onclick: () => toggle3D(true) }));
+  vs.append(h(`button${!S.view3d ? '.on' : ''}`, { 'aria-pressed': String(!S.view3d), title: 'Map seen from above', html: `${icon('map', 16)}2D`, onclick: () => toggle3D(false) }),
+    h(`button${S.view3d ? '.on' : ''}`, { 'aria-pressed': String(S.view3d), title: '3D view: drag to orbit', html: `${icon('cube', 16)}3D`, onclick: () => toggle3D(true) }));
   vs.classList.toggle('hidden', !!S.compare);
-  const ex = $('#exportBar'); ex.innerHTML = '';
-  ex.append(h('button', { title: 'Download current layer as PNG', html: `${icon('image', 16)}PNG`, onclick: exportPNG }),
-    h('button', { title: 'Download results (stats + bluespots) as JSON', html: `${icon('json', 16)}JSON`, onclick: exportJSON }),
-    h('button#reportBtn', { title: 'Export a PDF screening report (single result or option comparison)', html: `${icon('file', 16)}PDF`, onclick: () => openReportDialog(S, { settingsKey, saveOption }) })); // [report-hook]
   const zb = $('#zoomBar'); zb.innerHTML = '';
-  zb.append(h('button', { title: 'Zoom in', html: icon('plus', 16), onclick: () => map.zoomBy(1.5) }),
-    h('button', { title: 'Zoom out', html: icon('minus', 16), onclick: () => map.zoomBy(1 / 1.5) }),
-    h('button', { title: 'Fit site', html: icon('fit', 16), onclick: () => map.fit(true) }));
+  zb.append(h('button', { title: 'Zoom in', 'aria-label': 'Zoom in', html: icon('plus', 16), onclick: () => map.zoomBy(1.5) }),
+    h('button', { title: 'Zoom out', 'aria-label': 'Zoom out', html: icon('minus', 16), onclick: () => map.zoomBy(1 / 1.5) }),
+    h('button', { title: 'Show the whole site', 'aria-label': 'Show the whole site', html: icon('fit', 16), onclick: () => map.fit(true) }));
   zb.classList.toggle('hidden', S.view3d);
   renderTimebar(); renderLegend(); renderCaption();
 }
-function toggleBtn(label, on, fn, ic) {
-  const b = h(`button.tog${on ? '.on' : ''}`, { html: `<span class="sw"></span>${label}` });
-  b.onclick = () => { const v = !b.classList.contains('on'); b.classList.toggle('on', v); fn(v); };
+function toggleBtn(label, on, fn, tip) {
+  const b = h(`button.tog${on ? '.on' : ''}`, { html: `<span class="sw" aria-hidden="true"></span>${label}`, 'aria-pressed': String(on), dataset: { tip } });
+  b.onclick = () => { const v = !b.classList.contains('on'); b.classList.toggle('on', v); b.setAttribute('aria-pressed', String(v)); fn(v); };
   return b;
 }
-function setLayer(id) { S.layer = id; renderMapChrome(); refreshMap(); }
+function setLayer(id) {
+  S.layer = id; renderMapChrome(); refreshMap();
+  const sb = $('#step-surfaces .row-btns .btn'); if (sb) sb.innerHTML = `${icon('layers', 13)} ${S.layer === 'materials' ? 'Show water' : 'Show surfaces on map'}`;
+}
 function setSource(src) {
   S.source = src;
   if (src === 'instant' && LAYERS[S.layer].needsDynamic) S.layer = 'depth';
   stopPlay(); renderMapChrome(); refreshMap(); updateResults();
 }
+/** Scroll a step into view and flash it (used when a disabled control points the user to it). */
+function focusStep(name) {
+  const st = $(`#step-${name}`); if (!st) return;
+  st.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  st.classList.remove('flash'); void st.offsetWidth; st.classList.add('flash');
+}
 
 function renderLegend() {
   const el = $('#legend'); el.innerHTML = '';
+  if (!S.grid) { el.classList.add('hidden'); return; }
+  el.classList.remove('hidden');
   let ramp = null, title = '', note = '';
+  const collapse = h('button.lg-toggle', {
+    'aria-expanded': String(!S.legendCollapsed), title: S.legendCollapsed ? 'Show legend' : 'Hide legend',
+    onclick: () => { S.legendCollapsed = !S.legendCollapsed; renderLegend(); },
+  }, S.legendCollapsed ? 'Legend ▸' : '▾');
   if (S.compare) {
-    if (S.compare.mode === 'diff') { ramp = DIFF; title = DIFF.title; note = 'green = drier in B · red = wetter in B'; }
-    else { ramp = DEPTH; title = 'Water depth'; note = 'A left · B right · hidden < 1 cm'; }
+    if (S.compare.mode === 'diff') {
+      ramp = DIFF; title = DIFF.title; note = 'Blank: no change of 1 cm or more';
+      const d = S.compare.diff; let any = false;
+      if (d) for (let k = 0; k < d.length && !any; k++) any = Math.abs(d[k]) >= 0.01;
+      if (d && !any) note = 'No spot changes by 1 cm or more, so the map shows no colour. See the numbers on the right.';
+    }
+    else { ramp = DEPTH; title = 'Water depth (ponds filled)'; note = 'A on the left, B on the right. Shallower than 1 cm not shown.'; }
   } else if (S.layer === 'materials') {
-    if (!S.grid) return;
-    el.append(h('div.lg-title', 'Surface materials'));
+    el.append(h('div.lg-title', h('span', 'Surface materials'), collapse));
+    if (S.legendCollapsed) { el.classList.add('collapsed'); return; }
+    el.classList.remove('collapsed');
     for (const m of materialsPresent(S.grid, S.info.palette)) el.append(h('div.lg-row', h('span.sw', { style: { background: m.color } }), h('span', m.name), h('span.lg-val', fmtArea(m.areaM2))));
     el.append(h('div.lg-row', h('span.sw', { style: { background: '#4a5260' } }), h('span', 'Buildings')));
+    el.append(h('div.lg-note', 'Change surfaces in step 3.'));
     return;
   } else {
     const dyn = S.source === 'dynamic' && S.dyn;
     ramp = LAYERS[S.layer].ramp; title = ramp.title;
-    if (S.layer === 'depth') { title = dyn ? (S.frame >= 0 ? `Water depth at ${fmtClock(S.dyn.frameTimes[S.frame])}` : 'Maximum water depth') : 'Water depth (bluespots full)'; note = dyn ? 'hidden < 3 cm' : 'hidden < 1 cm'; }
-    else note = 'max over event · where depth ≥ 3 cm';
+    if (S.layer === 'depth') {
+      title = dyn ? (S.frame >= 0 ? `Water depth at ${fmtClock(S.dyn.frameTimes[S.frame])}` : 'Deepest water during the storm') : 'Water depth (ponds filled)';
+      note = dyn ? 'Shallower than 3 cm not shown.' : 'Low spots filled with the rain that reaches them. Shallower than 1 cm not shown.';
+    } else note = 'Highest value during the storm, where water is 3 cm or deeper.';
   }
-  el.append(h('div.lg-title', title, h('span.lg-unit', ramp.unit)));
+  el.append(h('div.lg-title', h('span', title, h('span.lg-unit', ` (${ramp.unit})`)), collapse));
+  if (S.legendCollapsed) { el.classList.add('collapsed'); return; }
+  el.classList.remove('collapsed');
   ramp.colors.forEach((c, i) => el.append(h('div.lg-row', h('span.sw', { style: { background: c } }), h('span', ramp.labels[i]))));
   if (note) el.append(h('div.lg-note', note));
-  if (!S.compare && S.showPaths && S.instant) el.append(h('div.lg-row.extra', h('span.sw.line'), h('span', 'Flow path · width ∝ log volume')));
-  if (!S.compare && S.showLabels && S.source === 'instant' && S.layer === 'depth') el.append(h('div.lg-row.extra', h('span.sw.dot'), h('span', 'Bluespot'), h('span.sw.dot.spill'), h('span', 'spills')));
+  if (!S.compare && S.showPaths && S.instant) el.append(h('div.lg-row.extra', h('span.sw.line'), h('span', 'Flow line: thicker carries more water')));
+  if (!S.compare && S.showLabels && S.source === 'instant' && S.layer === 'depth') el.append(h('div.lg-row.extra', h('span.sw.dot'), h('span', 'Pond'), h('span.sw.dot.spill'), h('span', 'full, overflows')));
 }
 
 function captionText() {
   const s = S.settings; const p = preset();
   const design = s.rainDepthMm * s.climateFactor;
-  const parts = [`${p.name.replace(' (cloudburst)', '')}: ${fmtInt(s.rainDepthMm)} mm × ${s.climateFactor.toFixed(2)} = ${fmtInt(design)} mm`,
-    SEWER[s.sewerMode].long, `${MOIST[s.moisture].label} soil`];
+  const parts = [`${presetName(p)} (${p.name.replace(' (cloudburst)', '')}): ${fmtInt(s.rainDepthMm)} mm × ${s.climateFactor.toFixed(2)} climate = ${fmtInt(design)} mm`,
+    SEWER[s.sewerMode].long, `${(MOIST[s.moisture].long || MOIST[s.moisture].label).toLowerCase()} soil`];
+  const nSwap = Object.keys(S.surfaceSwap || {}).length + (S.groundMaterial ? 1 : 0);
+  if (nSwap) parts.push(`${nSwap} surface change${nSwap > 1 ? 's' : ''}`);
   const cell = S.source === 'dynamic' && S.dyn ? S.dyn.grid.dx : (S.grid ? S.grid.dx : 1);
-  parts.push(`cell ${cell} m`);
-  if (S.source === 'dynamic' && S.dyn) parts.push('dynamic 2D'); else parts.push('instant bluespot');
+  parts.push(`${cell} m grid`);
+  if (S.source === 'dynamic' && S.dyn) parts.push('full simulation (2D, over time)'); else parts.push('quick check (ponds filled, no timing)');
   return parts.join(' · ');
 }
 function renderCaption() {
@@ -537,10 +636,11 @@ function renderCaption() {
   if (!S.grid) { el.innerHTML = ''; return; }
   const text = S.compare ? `Compare: A = ${S.compare.a.name} · B = ${S.compare.b.name}` : captionText();
   el.innerHTML = '';
-  el.append(h('span', text), h('b.warn', 'SCREENING MODEL – not for compliance'));
+  el.append(h('span', text), h('b.warn', { title: 'For comparing design options. Not for permits or compliance.' }, 'SCREENING MODEL – not for compliance'));
 }
 
 // ---------- hover tooltip
+function hazardWord(v) { return v < 0.5 ? `low (${v.toFixed(2)})` : v < 0.75 ? `caution (${v.toFixed(2)})` : v < 1.25 ? `danger for some (${v.toFixed(2)})` : v < 2 ? `danger for most (${v.toFixed(2)})` : `danger for all (${v.toFixed(2)})`; }
 function onHover(x, y, sx, sy, side) {
   const tt = $('#tooltip');
   if (!S.grid || S.view3d) { tt.classList.add('hidden'); return; }
@@ -566,14 +666,14 @@ function onHover(x, y, sx, sy, side) {
         const dg = S.dyn.grid; const kd = cellAt(dg, x, y);
         if (kd >= 0) {
           if (S.frame >= 0) rows.push([`Depth @ ${fmtClock(S.dyn.frameTimes[S.frame])}`, fmtCm(S.dyn.frames[S.frame][kd])]);
-          rows.push(['Max depth', fmtCm(S.dyn.hMax[kd])], ['Max velocity', `${S.dyn.vMax[kd].toFixed(2)} m/s`],
-            ['Hazard', S.dyn.hazard[kd].toFixed(2)], ['Time to peak', S.dyn.hMax[kd] >= 0.03 ? `${Math.round(S.dyn.tPeak[kd] / 60)} min` : '–']);
+          rows.push(['Deepest', fmtCm(S.dyn.hMax[kd])], ['Fastest speed', `${S.dyn.vMax[kd].toFixed(2)} m/s`],
+            ['Danger to people', hazardWord(S.dyn.hazard[kd])], ['Deepest after', S.dyn.hMax[kd] >= 0.03 ? `${Math.round(S.dyn.tPeak[kd] / 60)} min` : '–']);
         }
       } else if (S.instant) {
-        const d = S.instant.depth[k]; rows.push(['Depth', d >= 0.01 ? fmtCm(d) : 'dry']);
-        const acc = S.instant.accumulation[k]; if (acc > 0.5) rows.push(['Flow through', `${fmtVol(acc)} m³`]);
+        const d = S.instant.depth[k]; rows.push(['Water depth', d >= 0.01 ? fmtCm(d) : 'dry']);
+        const acc = S.instant.accumulation[k]; if (acc > 0.5) rows.push(['Water running through', `${fmtVol(acc)} m³`]);
         const lab = S.instant.labels ? S.instant.labels[k] : -1;
-        if (lab >= 0) { const bs = S.instant.bluespots.find((b) => b.id === lab); if (bs && bs.volumeM3 >= 1) rows.push(['Bluespot', `${fmtVol(bs.volumeM3)} m³${bs.spills ? ' · spills' : ''}`]); }
+        if (lab >= 0) { const bs = S.instant.bluespots.find((b) => b.id === lab); if (bs && bs.volumeM3 >= 1) rows.push(['Pond', `${fmtVol(bs.volumeM3)} m³${bs.spills ? ' · full, overflows' : ''}`]); }
       }
     }
   }
@@ -584,57 +684,218 @@ function onHover(x, y, sx, sy, side) {
 }
 
 // ------------------------------------------------------------------------------------------------ left panel
-function renderLeft() {
-  const el = $('#leftPanel'); el.innerHTML = '';
-  const s = S.settings;
-  el.append(h('div.panel-head', h('div.eyebrow', 'Scenario'), h('h2', S.site ? S.site.name : '')));
+// The left panel is the job, in order: Site → Rain → Surfaces → Run → Compare → Export.
+// Each step is <section class="step" id="step-<name>" data-step="<name>">; a step that cannot be used yet
+// carries .is-blocked and says why in .step-blocked.
+const STEPS = [
+  ['site', 'Site'], ['rain', 'Rain'], ['surfaces', 'Surfaces & drainage'], ['run', 'Run'], ['compare', 'Compare designs'], ['export', 'Export'],
+];
 
-  // 1 rain
-  const presets = h('div.presets');
+function renderLeft() {
+  const el = $('#leftPanel'); const scroll = el.scrollTop; el.innerHTML = '';
+  el.classList.remove('locked');
+  if (S.compare) { renderLeftCompare(el); return; }
+  const ready = !!S.grid;
+  const blocked = ready ? null : (S.site && S.site.kind === 'real' ? 'Load terrain for this site first (step 1).' : 'Preparing the site…');
+  const s = S.settings;
+
+  el.append(stepSection('site', siteSummary(), siteStepBody()));
+
+  // 2 rain
+  const presets = h('div.presets', { role: 'radiogroup', 'aria-label': 'Rain event' });
   for (const p of S.info.presets) {
-    const peak = Math.max(...p.intensity);
+    const L = PRESET_LABEL[p.id] || { name: p.name, sub: `${p.durationMin / 60} h` };
     presets.append(h(`button.preset${p.id === s.presetId ? '.on' : ''}`, {
-      dataset: { preset: p.id },
+      role: 'radio', 'aria-checked': String(p.id === s.presetId), dataset: { preset: p.id },
+      title: `${L.name}: ${fmtInt(p.depthMm)} mm × climate factor ${p.climateFactor.toFixed(2)}, peak ${fmtInt(Math.max(...p.intensity) * p.climateFactor)} mm/h`,
       onclick: () => {
         Object.assign(s, { presetId: p.id, rainDepthMm: p.depthMm, climateFactor: p.climateFactor });
-        $$('.preset', el).forEach((b) => b.classList.toggle('on', b.dataset.preset === p.id));
+        $$('.preset', el).forEach((b) => { const on = b.dataset.preset === p.id; b.classList.toggle('on', on); b.setAttribute('aria-checked', String(on)); });
         syncSliders(); settingsChanged();
       },
-    }, h('div.pre-top', h('span.pre-name', PRESET_LABEL[p.id] || p.name)),
-    h('div.hyeto', { html: hyetoSvg(p.intensity) }),
-    h('div.pre-foot', h('span', `${fmtInt(p.depthMm * p.climateFactor)} mm`), h('span.muted', `${p.durationMin / 60} h · peak ${fmtInt(peak * p.climateFactor)} mm/h`))));
+    }, h('div.pre-txt', h('span.pre-name', L.name), h('span.pre-sub', L.sub)),
+    h('div.hyeto', { html: hyetoSvg(p.intensity, 60, 22, 24) }),
+    h('span.pre-mm', `${fmtInt(p.depthMm * p.climateFactor)} mm`)));
   }
-  el.append(step(1, 'Rain event', 'drop',
+  el.append(stepSection('rain', `${fmtInt(s.rainDepthMm * s.climateFactor)} mm`,
+    h('p.step-note', 'Which storm should fall on the site?', help('returnPeriod')),
     presets,
-    slider('rainDepth', 'Rain depth', 10, 150, 1, s.rainDepthMm, (v) => `${fmtInt(v)} mm`, (v) => { s.rainDepthMm = v; settingsChanged(); }),
-    slider('climate', 'Climate factor', 1, 1.6, 0.05, s.climateFactor, (v) => `× ${v.toFixed(2)}`, (v) => { s.climateFactor = v; settingsChanged(); }),
-    h('div.rain-summary#rainSummary')));
+    h('div.rain-summary#rainSummary'),
+    h('details.advanced', h('summary', 'Adjust rain amount and climate factor'),
+      h('div.adv-body',
+        slider('rainDepth', 'Rain today', 10, 150, 1, s.rainDepthMm, (v) => `${fmtInt(v)} mm`, (v) => { s.rainDepthMm = v; settingsChanged(); }),
+        slider('climate', 'Climate factor (future rain)', 1, 1.6, 0.05, s.climateFactor, (v) => `× ${v.toFixed(2)}`, (v) => { s.climateFactor = v; settingsChanged(); }),
+        h('p.step-note', TERMS.climate))), blocked));
   updateRainSummary();
 
-  // 2 drainage & soil
-  el.append(step(2, 'Drainage & soil', 'layers',
-    h('label.field-label', 'Sewer system'),
-    segControl(SEWER.map((o) => ({ v: o.v, html: `${o.label}${o.sub ? `<small>${o.sub}</small>` : ''}` })), s.sewerMode, (v) => { s.sewerMode = v; settingsChanged(); }, 'sewer'),
-    h('label.field-label', 'Soil moisture'),
-    segControl(MOIST.map((o) => ({ v: o.v, html: o.label })), s.moisture, (v) => { s.moisture = v; settingsChanged(); }, 'moisture')));
+  // 3 surfaces & drainage
+  el.append(stepSection('surfaces', surfaceSummary(),
+    surfacesBlock(),
+    h('label.field-label', term('Where do roofs and paved areas drain?', 'sewer')),
+    segControl(SEWER.map((o) => ({ v: o.v, html: `${o.label}<small>${o.sub}</small>` })), s.sewerMode, (v) => { s.sewerMode = v; settingsChanged(); }, 'sewer'),
+    h('label.field-label', term('Ground before the storm', 'moisture')),
+    segControl(MOIST.map((o) => ({ v: o.v, html: o.label })), s.moisture, (v) => { s.moisture = v; settingsChanged(); }, 'moisture'), blocked));
 
-  // 3 dynamic
-  const dynBox = h('div#dynBox');
-  el.append(step(3, 'Dynamic simulation', 'wave',
-    h('p.step-note', '2D shallow-water run over time: velocities, hazard and time to peak.'),
-    h('label.field-label', 'Cell size'),
-    segControl([1, 2, 4].map((v) => ({ v, html: `${v} m` })), S.dynCell, (v) => { S.dynCell = v; renderDynBox(); }, 'dyncell'),
-    h('label.field-label', 'Duration'),
-    segControl(DURATIONS.map((d) => ({ v: d.id, html: d.label })), S.dynDuration, (v) => { S.dynDuration = v; renderDynBox(); }, 'dyndur'),
-    dynBox));
-  renderDynBox();
-  el.classList.toggle('locked', !!S.compare); if (S.compare) el.scrollTop = 0;
-  if (S.compare) el.append(h('div.panel-lock', h('div', h('b', 'Comparing options'), h('p', 'The map shows saved options. Exit compare to keep editing.'), h('button.btn.primary', { onclick: exitCompare }, 'Exit compare'))));
+  // 4 run
+  el.append(stepSection('run', S.dyn ? 'Simulated' : 'Quick check',
+    h('div.quick-status#quickStatus'),
+    h('div.run-full',
+      h('div.run-full-head', h('b', 'Full simulation'), help('dynamic')),
+      h('p.step-note', 'Adds water speed, danger to people and timing. Runs in the background; you can keep working.'),
+      h('div#dynBox')),
+    h('details.advanced', h('summary', 'Simulation settings'),
+      h('div.adv-body',
+        h('label.field-label', term('Detail (cell size)', 'cellSize')),
+        segControl([1, 2, 4].map((v) => ({ v, html: `${v} m<small>${v === 1 ? 'fine, slow' : v === 2 ? 'balanced' : 'coarse, fast'}</small>` })), S.dynCell, (v) => { S.dynCell = v; renderDynBox(); }, 'dyncell'),
+        h('label.field-label', 'How long to simulate'),
+        segControl(DURATIONS.map((d) => ({ v: d.id, html: d.label })), S.dynDuration, (v) => { S.dynDuration = v; renderDynBox(); }, 'dyndur'))), blocked));
+  renderDynBox(); updateQuickStatus();
+
+  // 5 compare
+  el.append(stepSection('compare', S.options.length ? `${S.options.length} saved` : '', optionsBlock(), blocked));
+
+  // 6 export: built-in and registered actions (js/hooks.js)
+  el.append(stepSection('export', '', exportBlock(), blocked));
+  el.scrollTop = scroll;
 }
 
-function step(n, title, ic, ...body) {
-  return h('section.step', h('div.step-head', h('span.step-n', String(n)), h('h3', title)), h('div.step-body', ...body));
+function stepSection(name, summary, ...body) {
+  const blocked = typeof body[body.length - 1] === 'string' || body[body.length - 1] === null ? body.pop() : null;
+  const n = STEPS.findIndex(([k]) => k === name) + 1; const title = STEPS[n - 1][1];
+  return h(`section.step#step-${name}${blocked ? '.is-blocked' : ''}`, { dataset: { step: name }, 'aria-labelledby': `step-${name}-title` },
+    h('div.step-head', h('span.step-n', String(n)), h('h3', { id: `step-${name}-title` }, title), summary ? h('span.step-sum', summary) : null),
+    blocked ? h('p.step-blocked', { html: `${icon('info', 13)} ${blocked}` }) : null,
+    h('div.step-body', { inert: !!blocked }, ...body));
 }
+
+function siteSummary() {
+  if (!S.site) return '';
+  if (!S.grid) return 'Terrain needed';
+  return `${fmtInt(S.grid.nx * S.grid.dx)} × ${fmtInt(S.grid.ny * S.grid.dx)} m`;
+}
+function siteStepBody() {
+  const out = [];
+  if (S.site && S.grid) {
+    const g = S.grid; const nB = S.sampleJson ? S.sampleJson.buildings.length : null;
+    out.push(h('p.site-line', h('b', S.site.name), h('span.muted', [
+      `${fmtInt(g.nx * g.dx)} × ${fmtInt(g.ny * g.dx)} m`, `${g.dx} m grid`,
+      nB != null ? `${nB} buildings` : 'terrain only',
+    ].join(' · '))));
+    if (S.site.kind !== 'synthetic') out.push(h('p.step-note', 'Terrain from a file or DHM: buildings are not in the terrain and every surface counts as one material (choose it in step 3).'));
+    // Engine notes matter for real terrain (e.g. bridge decks); for the built-in examples they are noise.
+    const notes = S.site.kind === 'synthetic' ? [] : (g.warnings || []).filter((w) => !/built in/i.test(w));
+    if (notes.length) out.push(h('p.step-warn', { html: `${icon('alert', 13)} ${notes.join(' ')}` }));
+  } else if (S.site && S.site.kind === 'real') {
+    out.push(h('p.step-note', 'This real site needs its terrain. Use the panel on the map: fetch it with a free API key, or drop a terrain file.'));
+  }
+  out.push(h('div.row-btns', h('a.btn.ghost.small', { href: '#/', html: `${icon('back', 13)} Change site` })));
+  return out;
+}
+
+// ---------- surfaces: swap the material of the site's surface regions (a design change), or the ground material
+function polyArea(xs, ys) { let a = 0; for (let i = 0, j = xs.length - 1; i < xs.length; j = i++) a += (xs[j] + xs[i]) * (ys[j] - ys[i]); return Math.abs(a / 2); }
+function mat(id) { return S.info.palette.materials.find((m) => m.id === id); }
+function materialSelect(value, onChange, label) {
+  const groups = new Map();
+  for (const m of S.info.palette.materials) { if (!groups.has(m.category)) groups.set(m.category, []); groups.get(m.category).push(m); }
+  const sel = h('select.mat-select', { 'aria-label': label, onchange: () => onChange(sel.value) },
+    ...[...groups].map(([cat, ms]) => h('optgroup', { label: cat }, ...ms.map((m) => h('option', { value: m.id, selected: m.id === value }, m.name)))));
+  return sel;
+}
+function surfaceGroups() {
+  const regions = (S.sampleJson && S.sampleJson.surfaces) || [];
+  const groups = new Map();
+  for (const r of regions) { const g = groups.get(r.material) || { id: r.material, n: 0, area: 0 }; g.n++; g.area += polyArea(r.xs, r.ys); groups.set(r.material, g); }
+  return [...groups.values()].sort((a, b) => b.area - a.area);
+}
+function surfaceSummary() {
+  const n = Object.keys(S.surfaceSwap).length + (S.groundMaterial ? 1 : 0);
+  return n ? `${n} change${n > 1 ? 's' : ''}` : 'As drawn';
+}
+function surfacesBlock() {
+  const wrap = h('div.surfaces');
+  const groups = surfaceGroups();
+  wrap.append(h('p.step-note', 'Change a surface to test a design idea. The map updates straight away.', help('surfaces')));
+  const list = h('div.surf-list');
+  for (const g of groups) {
+    const now = S.surfaceSwap[g.id] || g.id; const m = mat(now); const orig = mat(g.id);
+    list.append(h(`div.surf-row${S.surfaceSwap[g.id] ? '.changed' : ''}`,
+      h('span.sw', { style: { background: m ? m.color : '#888' } }),
+      h('div.surf-txt',
+        materialSelect(now, (v) => { if (v === g.id) delete S.surfaceSwap[g.id]; else S.surfaceSwap[g.id] = v; applyDesignChange(); }, `Material for ${orig ? orig.name : g.id}`),
+        h('span.muted', `${fmtArea(g.area)} · ${g.n} area${g.n > 1 ? 's' : ''}${S.surfaceSwap[g.id] ? ` · was ${orig ? orig.name : g.id}` : ''}`))));
+  }
+  const groundNow = S.groundMaterial || S.info.palette.defaultMaterial;
+  const gm = mat(groundNow);
+  list.append(h(`div.surf-row${S.groundMaterial ? '.changed' : ''}`,
+    h('span.sw', { style: { background: gm ? gm.color : '#888' } }),
+    h('div.surf-txt',
+      materialSelect(groundNow, (v) => { S.groundMaterial = v === S.info.palette.defaultMaterial ? null : v; applyDesignChange(); }, 'Material for everything else'),
+      h('span.muted', groups.length ? 'everything else (not drawn as a surface)' : 'the whole site'))));
+  wrap.append(list);
+  const btns = h('div.row-btns');
+  btns.append(h('button.btn.ghost.small', { onclick: () => { setLayer(S.layer === 'materials' ? 'depth' : 'materials'); }, html: `${icon('layers', 13)} ${S.layer === 'materials' ? 'Show water' : 'Show surfaces on map'}` }));
+  if (Object.keys(S.surfaceSwap).length || S.groundMaterial) {
+    btns.append(h('button.btn.ghost.small', { onclick: () => { S.surfaceSwap = {}; S.groundMaterial = null; applyDesignChange(); toast('Surfaces reset to the original design'); }, html: `${icon('undo', 13)} Reset surfaces` }));
+  }
+  wrap.append(btns);
+  return wrap;
+}
+
+// ---------- compare
+function optionsBlock() {
+  const wrap = h('div.options');
+  const pair = S.site && S.site.info.compareWith && sampleInfo(S.site.info.compareWith);
+  if (pair) {
+    wrap.append(h('button.btn.accent.wide#pairBtn', { onclick: comparePair, disabled: !S.instant, html: `${icon('compare', 15)} Compare with ‘${shortName(pair.name)}’` }),
+      h('p.step-note', 'This example comes with a redesigned version. Or build your own options below.'));
+  }
+  const list = h('div.opts');
+  S.options.forEach((o, i) => list.append(h('div.opt', h('span.opt-letter', String.fromCharCode(65 + i)), h('div.opt-txt', h('b', o.name), h('span', o.caption)),
+    h('button.icon-btn', { title: `Remove option ${String.fromCharCode(65 + i)}`, 'aria-label': `Remove option ${String.fromCharCode(65 + i)}`, html: icon('x', 14), onclick: () => removeOption(i) }))));
+  const n = S.options.length; const next = String.fromCharCode(65 + n);
+  const guide = n === 0 ? 'Save what you see now as option A. Then change the rain or a surface and save option B.'
+    : n === 1 ? 'Now change something (a surface in step 3, the drainage or the rain), then save option B.'
+      : 'Compare the last two options, or save more.';
+  wrap.append(h('p.step-note', guide), list);
+  wrap.append(h('div.row-btns',
+    h('button.btn.ghost', { onclick: saveOption, disabled: !S.instant, html: `${icon('save', 14)} Save as option ${next}` }),
+    n >= 2 ? h('button.btn.primary', { onclick: () => enterCompare(S.options[n - 2], S.options[n - 1], 'diff'), html: `${icon('compare', 14)} Compare ${String.fromCharCode(63 + n)} and ${String.fromCharCode(64 + n)}` }) : null));
+  return wrap;
+}
+function removeOption(i) {
+  const [o] = S.options.splice(i, 1); renderLeft();
+  toast(`Removed ${o.name}`, 'info', { label: 'Undo', fn: () => { S.options.splice(i, 0, o); renderLeft(); } });
+}
+
+// ---------- export
+function exportBlock() {
+  const wrap = h('div.export-actions', { dataset: { hook: 'export-actions' } });
+  for (const a of exportActions()) {
+    const ok = a.enabled ? a.enabled(appContext()) : true;
+    wrap.append(h(`button.btn.export-btn${a.primary ? '.primary' : '.ghost'}`, {
+      dataset: { export: a.id }, disabled: ok !== true, title: ok === true ? (a.description || '') : ok,
+      onclick: () => a.run(appContext()),
+    }, h('span.exp-ic', { html: icon(a.icon || 'download', 15) }), h('span.exp-txt', h('b', a.label), a.description ? h('small', ok === true ? a.description : ok) : null)));
+  }
+  wrap.append(h('p.step-note.exp-note', 'Every export carries the rain, drainage and grid assumptions, and the words "screening model".'));
+  return wrap;
+}
+
+function renderLeftCompare(el) {
+  const { a, b } = S.compare;
+  el.append(h('div.panel-head', h('div.eyebrow', 'Comparing'), h('h2', 'Option A vs option B')),
+    h('section.step#step-compare.is-current', { dataset: { step: 'compare' } },
+      h('div.step-head', h('span.step-n', '5'), h('h3', 'Compare designs')),
+      h('div.step-body',
+        h('div.cmp-names', h('div', h('span.opt-letter.sm', 'A'), h('span', a.name)), h('div', h('span.opt-letter.sm.b', 'B'), h('span', b.name))),
+        h('p.step-note', S.compare.mode === 'diff' ? 'Green: drier in B. Red: wetter in B. Use the switch above the map to see both side by side.' : 'Drag the divider on the map: A on the left, B on the right.'),
+        h('div.row-btns',
+          h('button.btn.ghost', { onclick: () => { S.compare = { a: b, b: a, mode: S.compare.mode }; renderLeft(); refreshMap(); updateResults(); renderCaption(); }, html: `${icon('swipe', 14)} Swap A and B` }),
+          h('button.btn.primary', { onclick: exitCompare, html: `${icon('x', 14)} Back to editing` })))),
+    stepSection('export', '', exportBlock()));
+}
+
 function slider(id, label, min, max, stepv, value, fmt, onInput) {
   const out = h('output', fmt(value));
   const inp = h('input', { type: 'range', min, max, step: stepv, value, id: `sl-${id}` });
@@ -646,10 +907,10 @@ function slider(id, label, min, max, stepv, value, fmt, onInput) {
 }
 function syncSliders() { $('#sl-rainDepth')._set(S.settings.rainDepthMm); $('#sl-climate')._set(S.settings.climateFactor); }
 function segControl(opts, value, onChange, name) {
-  const wrap = h('div.segctl', { dataset: { name } });
+  const wrap = h('div.segctl', { dataset: { name }, role: 'group' });
   for (const o of opts) {
-    const b = h(`button${o.v === value ? '.on' : ''}`, { html: o.html, dataset: { v: String(o.v) } });
-    b.onclick = () => { $$('button', wrap).forEach((x) => x.classList.toggle('on', x === b)); onChange(o.v); };
+    const b = h(`button${o.v === value ? '.on' : ''}`, { html: o.html, dataset: { v: String(o.v) }, 'aria-pressed': String(o.v === value) });
+    b.onclick = () => { $$('button', wrap).forEach((x) => { x.classList.toggle('on', x === b); x.setAttribute('aria-pressed', String(x === b)); }); onChange(o.v); };
     wrap.append(b);
   }
   return wrap;
@@ -672,7 +933,17 @@ function areaSvg(arr, w, hgt) {
 function updateRainSummary() {
   const el = $('#rainSummary'); if (!el) return;
   const s = S.settings; const design = s.rainDepthMm * s.climateFactor;
-  el.innerHTML = `<span>Design rain</span><b>${fmtInt(design)} mm</b><span class="muted">${fmtInt(s.rainDepthMm)} mm × ${s.climateFactor.toFixed(2)} climate</span>`;
+  el.innerHTML = '';
+  el.append(h('span', term('Rain on the site', 'designRain')), h('b', `${fmtInt(design)} mm`),
+    h('span.muted', `${fmtInt(s.rainDepthMm)} mm today × ${s.climateFactor.toFixed(2)} for future climate`));
+  const sum = $('#step-rain .step-sum'); if (sum) sum.textContent = `${fmtInt(design)} mm`;
+}
+function updateQuickStatus() {
+  const el = $('#quickStatus'); if (!el) return;
+  el.innerHTML = '';
+  if (!S.instant) { el.append(h('span.muted', 'Quick check runs as soon as the site is loaded.')); return; }
+  el.append(h('span.qs-ok', { html: icon('check', 14) }), h('span', h('b', 'Quick check is live'), help('instant'), h('br'),
+    h('span.muted', `Updates by itself when you change rain or surfaces (${Math.max(1, Math.round(S.instMs))} ms).`)));
 }
 
 // ---------- dynamic
@@ -683,67 +954,92 @@ function dynamicRain() {
   if (dur.cut) rain = rain.slice(0, dur.cut);
   return { rain, after: dur.after, totalMin: rain.length + dur.after };
 }
-function estimateRunS() {
+function estimateRunRawS() {
   if (!S.grid) return 0;
   const { totalMin } = dynamicRain(); const c = S.dynCell;
   const cells = (S.grid.nx * S.grid.dx / c) * (S.grid.ny * S.grid.dx / c);
   return 7.5e-6 * cells * totalMin * (2 / c);
 }
-function settingsKey() { return JSON.stringify({ ...S.settings, cell: S.dynCell, dur: S.dynDuration }); }
+/** Estimate corrected by what the last run on this computer actually took. */
+function estimateRunS() { return estimateRunRawS() * S.speedK; }
+function fmtEstimate(sec) { return sec < 60 ? `about ${Math.max(5, Math.round(sec / 5) * 5)} s` : `about ${Math.round(sec / 60)} min`; }
+function settingsKey() { return JSON.stringify({ ...S.settings, cell: S.dynCell, dur: S.dynDuration, swap: S.surfaceSwap, ground: S.groundMaterial }); }
 
 function renderDynBox() {
   const box = $('#dynBox'); if (!box) return; box.innerHTML = '';
   if (S.dynRun) {
     box.append(h('div.progress-card',
       h('div.pc-head', h('span.spinner'), h('b#dynPct', 'Starting…'), h('span.muted#dynEta', '')),
-      h('div.bar', h('div.fill#dynFill')),
+      h('div.bar', { role: 'progressbar', 'aria-label': 'Simulation progress', 'aria-valuemin': 0, 'aria-valuemax': 100 }, h('div.fill#dynFill')),
       h('div.pc-meta', h('span#dynSim', ''), h('span#dynH', '')),
       h('button.btn.ghost.small', { onclick: cancelDynamic, html: `${icon('stop', 12)} Cancel` })));
+    renderRunStatus();
     return;
   }
-  const est = estimateRunS();
-  box.append(h('button.btn.primary.wide#runDyn', { onclick: startDynamic, disabled: !S.grid, html: `${icon('play', 14)} ${S.dyn ? 'Re-run' : 'Run'} dynamic simulation` }),
-    h('div.est', { html: `${icon('clock', 13)} Estimated ${est < 60 ? `≈ ${Math.max(2, Math.round(est))} s` : `≈ ${Math.round(est / 60)} min`} · ${dynamicRain().totalMin} min simulated` }));
+  renderRunStatus();
+  const stale = S.dyn && S.dyn.key !== settingsKey();
+  box.append(h('button.btn.primary.wide#runDyn', { onclick: startDynamic, disabled: !S.grid, html: `${icon('play', 14)} ${S.dyn ? (stale ? 'Run again with new settings' : 'Run again') : 'Run full simulation'}` }),
+    h('div.est', { html: `${icon('clock', 13)} Takes ${fmtEstimate(estimateRunS())} · simulates ${fmtDuration(dynamicRain().totalMin * 60).replace(' 0 s', '')} of storm` }));
   if (S.dyn) {
     const m = S.dyn.mass;
-    box.append(h('div.dyn-done', { html: `${icon('check', 14)} Done in ${fmt1(m.elapsedS)} s · ${fmtInt(m.steps)} steps · ${S.dyn.frames.length} frames` }));
-    box.append(h('div.stale#dynStale.hidden', { html: `${icon('alert', 13)} Settings changed since this run` }));
-    updateDynStale();
+    box.append(h('div.dyn-done', { html: `${icon('check', 14)} Simulated in ${fmt1(m.elapsedS)} s. Speed, danger and timing are on the map.` }));
+    box.append(h(`div.stale#dynStale${stale ? '' : '.hidden'}`, { html: `${icon('alert', 13)} You changed settings after this run, so the simulation shows the old design. Run again to update it.` }));
   }
 }
-function updateDynStale() { const el = $('#dynStale'); if (el && S.dyn) el.classList.toggle('hidden', S.dyn.key === settingsKey()); renderDynBoxEst(); }
-function renderDynBoxEst() { if (!S.dynRun && $('#runDyn')) { const est = estimateRunS(); const e = $('.est'); if (e) e.innerHTML = `${icon('clock', 13)} Estimated ${est < 60 ? `≈ ${Math.max(2, Math.round(est))} s` : `≈ ${Math.round(est / 60)} min`} · ${dynamicRain().totalMin} min simulated`; } }
+function updateDynStale() {
+  const stale = S.dyn && S.dyn.key !== settingsKey();
+  const el = $('#dynStale'); if (el) el.classList.toggle('hidden', !stale);
+  if (!S.dynRun && $('#runDyn')) {
+    $('#runDyn').innerHTML = `${icon('play', 14)} ${S.dyn ? (stale ? 'Run again with new settings' : 'Run again') : 'Run full simulation'}`;
+    const e = $('#dynBox .est'); if (e) e.innerHTML = `${icon('clock', 13)} Takes ${fmtEstimate(estimateRunS())} · simulates ${fmtDuration(dynamicRain().totalMin * 60).replace(' 0 s', '')} of storm`;
+  }
+  renderCaption();
+}
+
+/** Progress pill on the map, so a running simulation is visible wherever the panel is scrolled. */
+function renderRunStatus(p = null) {
+  const el = $('#runStatus'); if (!el) return;
+  if (!S.dynRun) { el.classList.add('hidden'); el.innerHTML = ''; return; }
+  el.classList.remove('hidden');
+  if (!el.firstChild) {
+    el.append(h('span.spinner'), h('span.rs-txt', 'Simulating…'), h('button.btn.ghost.small', { onclick: cancelDynamic, html: `${icon('stop', 11)} Cancel` }));
+  }
+  if (p) el.querySelector('.rs-txt').textContent = `Full simulation ${Math.round(p.f * 100)} %${p.eta ? ` · ${p.eta} left` : ''}`;
+}
 
 function startDynamic() {
   if (!S.grid || S.dynRun) return;
   const { rain, after, totalMin } = dynamicRain();
   const outInt = Math.max(60, Math.round((totalMin * 60) / 48 / 60) * 60);
   const scenario = { ...scenarioInstant(), afterRainMin: after, outputIntervalS: outInt, maxFrames: 120 };
-  const key = settingsKey(); const site = S.site;
-  const run = S.cb.runDynamic(S.siteDesc, { cellSize: S.dynCell }, scenario, rain, [], (p) => {
+  const key = settingsKey(); const site = S.site; const rawEst = estimateRunRawS();
+  const run = S.cb.runDynamic(S.siteDesc, gridSettings(S.dynCell), scenario, rain, [], (p) => {
     if (S.dynRun !== run) return;
     const f = clamp(p.fraction, 0, 1); const eta = f > 0.02 ? (p.elapsedS * (1 - f)) / f : NaN;
+    renderRunStatus({ f, eta: isFinite(eta) ? fmtDuration(eta) : '' });
     const pct = $('#dynPct'); if (!pct) return;
     pct.textContent = `${Math.round(f * 100)} %`;
     $('#dynFill').style.width = `${f * 100}%`;
+    const bar = $('#dynBox .bar'); if (bar) bar.setAttribute('aria-valuenow', Math.round(f * 100));
     $('#dynEta').textContent = isFinite(eta) ? `${fmtDuration(eta)} left` : 'estimating…';
-    $('#dynSim').textContent = `t = ${fmtClock(p.timeS)} / ${fmtClock(totalMin * 60)}`;
-    $('#dynH').textContent = `max depth ${fmtCm(p.hMax)}`;
+    $('#dynSim').textContent = `storm time ${fmtClock(p.timeS)} of ${fmtClock(totalMin * 60)}`;
+    $('#dynH').textContent = `deepest so far ${fmtCm(p.hMax)}`;
   });
   S.dynRun = run; renderDynBox();
   run.result.then((res) => {
     if (S.dynRun !== run || S.site !== site) return;
     S.dynRun = null;
+    if (rawEst > 0 && res.mass.elapsedS > 0) S.speedK = clamp(res.mass.elapsedS / rawEst, 0.2, 10);
     res.key = key; res.rain = rain; res.totalMin = totalMin;
     S.dyn = res; S.frame = -1; S.source = 'dynamic';
-    renderDynBox(); renderMapChrome(); refreshMap(); updateResults();
-    toast(`Dynamic run finished in ${fmt1(res.mass.elapsedS)} s`, 'ok');
+    renderLeft(); renderMapChrome(); refreshMap(); updateResults();
+    toast(`Full simulation done in ${fmt1(res.mass.elapsedS)} s. Try Speed, Danger and Timing above the map.`, 'ok');
   }).catch((e) => {
     if (S.dynRun === run) { S.dynRun = null; renderDynBox(); }
-    if (!/cancel/.test(e.message)) { console.error(e); toast(`Dynamic run failed: ${e.message}`, 'error'); }
+    if (!/cancel/.test(e.message)) { console.error(e); toast(`The simulation stopped with an error: ${e.message}. Try a coarser cell size (Run ▸ Simulation settings).`, 'error'); }
   });
 }
-function cancelDynamic() { if (S.dynRun) { S.dynRun.cancel(); S.dynRun = null; renderDynBox(); toast('Simulation cancelled'); } }
+function cancelDynamic() { if (S.dynRun) { S.dynRun.cancel(); S.dynRun = null; renderDynBox(); toast('Simulation cancelled. Your earlier results are unchanged.'); } }
 
 // ---------- time bar
 function renderTimebar() {
@@ -754,15 +1050,15 @@ function renderTimebar() {
   if (!show) return;
   tb.innerHTML = '';
   const d = S.dyn; const n = d.frames.length;
-  const play = h('button.play', { html: icon(S.playing ? 'pause' : 'play', 16), title: 'Play', onclick: togglePlay });
+  const play = h('button.play', { html: icon(S.playing ? 'pause' : 'play', 16), title: 'Play the storm', 'aria-label': 'Play the storm', onclick: togglePlay });
   const totalS = d.totalMin * 60;
   const rainSvg = h('div.tb-rain', { html: areaSvg(d.rain.concat(new Array(Math.max(0, d.totalMin - d.rain.length)).fill(0)), 400, 26) });
-  const inp = h('input#timeSlider', { type: 'range', min: 0, max: n - 1, step: 1, value: S.frame < 0 ? n - 1 : S.frame });
+  const inp = h('input#timeSlider', { 'aria-label': 'Time in the storm', type: 'range', min: 0, max: n - 1, step: 1, value: S.frame < 0 ? n - 1 : S.frame });
   const label = h('div.tb-time');
-  const maxBtn = h(`button.tog.small${S.frame < 0 ? '.on' : ''}`, { html: '<span class="sw"></span>Max envelope' });
+  const maxBtn = h(`button.tog.small${S.frame < 0 ? '.on' : ''}`, { html: '<span class="sw"></span>Deepest overall', dataset: { tip: 'On: the deepest water at each spot during the whole storm. Off: the water at the time on the slider.' } });
   const upd = () => {
     const t = S.frame < 0 ? null : d.frameTimes[S.frame];
-    label.innerHTML = t == null ? `<b>Max</b><span>over ${fmtClock(totalS)}</span>` : `<b>${fmtClock(t)}</b><span>of ${fmtClock(totalS)}</span>`;
+    label.innerHTML = t == null ? `<b>Deepest</b><span>over ${fmtClock(totalS)}</span>` : `<b>${fmtClock(t)}</b><span>of ${fmtClock(totalS)}</span>`;
     const f = S.frame < 0 ? 1 : t / totalS;
     rainSvg.style.setProperty('--p', `${f * 100}%`);
     inp.style.setProperty('--p', `${((S.frame < 0 ? n - 1 : S.frame) / Math.max(1, n - 1)) * 100}%`);
@@ -789,66 +1085,86 @@ function togglePlay() {
 function stopPlay() { if (S.playing) { clearInterval(S.playing); S.playing = 0; } const b = $('#timebar .play'); if (b) b.innerHTML = icon('play', 16); }
 
 // ------------------------------------------------------------------------------------------------ right panel
+// Regions: .panel-head (title + status chip), #resVerdict (one plain sentence), #resBody (numbers, details).
 function renderRight() {
   const el = $('#rightPanel'); el.innerHTML = '';
-  el.append(h('div.panel-head.row', h('div', h('div.eyebrow', 'Results'), h('h2#resTitle', 'Instant screening')), h('span.live#live', h('span.dot'), h('span#liveText', 'Live'))));
+  el.append(h('div.panel-head.row', h('div', h('div.eyebrow', 'Results'), h('h2#resTitle', 'Quick check')), h('span.live.hidden#live', { role: 'status' }, h('span.dot'), h('span#liveText', 'Live'))));
   el.append(h('div#resBody'));
   updateResults();
 }
 
-function tile(label, value, unit, cls = '', sub = '') {
-  return h(`div.tile${cls}`, h('div.t-label', label), h('div.t-val', h('span.num', value), h('span.unit', unit)), sub ? h('div.t-sub', { html: sub }) : null);
+function tile(label, value, unit, cls = '', sub = '', tip = null) {
+  return h(`div.tile${cls}`, h('div.t-label', label, tip ? help(tip) : null), h('div.t-val', h('span.num', value), h('span.unit', unit)), sub ? h('div.t-sub', { html: sub }) : null);
 }
 
 function updateResults() {
   const body = $('#resBody'); if (!body) return;
   if (S.compare) { renderCompareResults(body); return; }
+  $('#live').classList.toggle('hidden', !S.grid);
   if (!S.grid) {
     body.innerHTML = '';
-    body.append(h('div.empty', h('div.empty-ic', { html: icon(S.site && S.site.kind === 'real' ? 'upload' : 'drop', 28) }), h('p', S.site && S.site.kind === 'real' ? 'Add terrain to start screening.' : 'Preparing site…')));
+    const real = S.site && S.site.kind === 'real';
+    body.append(h('div.empty', h('div.empty-ic', { html: icon(real ? 'upload' : 'drop', 28) }),
+      h('p', real ? 'No terrain yet. Fetch it or drop a terrain file (see the map), and results appear here.' : 'Preparing the site…')));
     return;
   }
   const dyn = S.source === 'dynamic' && S.dyn;
-  $('#resTitle').textContent = dyn ? 'Dynamic simulation' : 'Instant screening';
-  $('#liveText').textContent = dyn ? `${fmt1(S.dyn.mass.elapsedS)} s run` : `Live · ${Math.round(S.instMs)} ms`;
+  $('#resTitle').textContent = dyn ? 'Full simulation' : 'Quick check';
+  $('#liveText').textContent = dyn ? `simulated in ${fmt1(S.dyn.mass.elapsedS)} s` : 'live';
   $('#live').classList.toggle('dyn', !!dyn);
   const scrollTop = body.scrollTop;
   body.innerHTML = '';
   const cell2 = (g) => g.dx * g.dx;
   if (dyn) {
-    const d = S.dyn; const g = d.grid; let maxD = 0, maxV = 0, a10 = 0, wet = 0;
+    const d = S.dyn; const g = d.grid; let maxD = 0, maxV = 0, a10 = 0, wet = 0, danger = 0;
     for (let k = 0; k < d.hMax.length; k++) {
       if (g.building[k] >= 0) continue; const hv = d.hMax[k];
-      if (hv > maxD) maxD = hv; if (hv >= 0.03) { wet++; if (d.vMax[k] > maxV) maxV = d.vMax[k]; } if (hv > 0.1) a10++;
+      if (hv > maxD) maxD = hv; if (hv >= 0.03) { wet++; if (d.vMax[k] > maxV) maxV = d.vMax[k]; if (d.hazard[k] >= 0.75) danger++; } if (hv > 0.1) a10++;
     }
     const area10 = a10 * cell2(g);
+    body.append(verdict(area10, maxD, danger * cell2(g)));
     body.append(h('div.tiles',
-      tile('Water on site (end)', fmtVol(d.mass.storedM3), 'm³'),
-      tile('Area > 10 cm', fmtInt(area10), 'm²', area10 > 0 ? '.hot' : '.good', targetText(area10)),
-      tile('Max depth', Math.round(maxD * 100), 'cm'),
-      tile('Max velocity', maxV.toFixed(2), 'm/s', '', `wet area ${fmtArea(wet * cell2(g))}`)));
+      tile('Area deeper than 10 cm', fmtInt(area10), 'm²', area10 > 0 ? '.hot' : '.good', targetText(area10), 'target'),
+      tile('Deepest water', Math.round(maxD * 100), 'cm'),
+      tile('Fastest water', maxV.toFixed(2), 'm/s', '', `wet area ${fmtArea(wet * cell2(g))}`),
+      tile('Still on site at the end', fmtVol(d.mass.storedM3), 'm³')));
     body.append(massCard(d.mass));
   } else if (S.instant) {
     const st = S.instant.stats;
+    body.append(verdict(st.areaOver10CmM2, st.maxDepthM, null));
     body.append(h('div.tiles',
-      tile('Flooded volume', fmtVol(st.storedVolumeM3), 'm³', '', `in ${fmtArea(st.floodedAreaM2)} ponded`),
-      tile('Area > 10 cm', fmtInt(st.areaOver10CmM2), 'm²', st.areaOver10CmM2 > 0 ? '.hot' : '.good', targetText(st.areaOver10CmM2)),
-      tile('Max depth', Math.round(st.maxDepthM * 100), 'cm'),
-      tile('Bluespots', fmtInt(st.bluespotCount), '', '', `<span class="spill-dot"></span>${fmtInt(st.spillingCount)} spilling`)));
+      tile('Area deeper than 10 cm', fmtInt(st.areaOver10CmM2), 'm²', st.areaOver10CmM2 > 0 ? '.hot' : '.good', targetText(st.areaOver10CmM2), 'target'),
+      tile('Water standing in ponds', fmtVol(st.storedVolumeM3), 'm³', '', `over ${fmtArea(st.floodedAreaM2)}`),
+      tile('Deepest water', Math.round(st.maxDepthM * 100), 'cm'),
+      tile('Ponds', fmtInt(st.bluespotCount), '', '', 'low spots that fill up', 'bluespot')));
     body.append(balanceCard(st));
+    body.append(bluespotCard());
   }
-  if (S.instant) body.append(bluespotCard());
   body.append(retentionCard());
-  body.append(optionsCard());
   updateRetentionCard();
+  body.append(h('p.res-next', { html: nextStepText() }));
   body.scrollTop = scrollTop;
 }
+/** One sentence a non-hydrologist can repeat in a meeting. */
+function verdict(area10, maxD, dangerArea) {
+  const p = presetName(preset()).toLowerCase();
+  let txt = area10 > 0
+    ? `In this ${p}, <b>${fmtArea(area10)}</b> of the site gets deeper than 10 cm (deepest ${Math.round(maxD * 100)} cm).`
+    : `In this ${p}, no water on the site gets deeper than 10 cm (deepest ${Math.round(maxD * 100)} cm).`;
+  if (dangerArea != null) txt += dangerArea > 0 ? ` About <b>${fmtArea(dangerArea)}</b> is dangerous to wade through.` : ' Nowhere is dangerous to wade through.';
+  return h(`div.verdict${area10 > 0 ? '.bad' : '.ok'}#resVerdict`, { html: txt });
+}
+function nextStepText() {
+  if (!S.dyn) return `${icon('arrow', 13)} Next: change a surface (step 3), or run the full simulation for speed and danger (step 4).`;
+  if (S.options.length < 2) return `${icon('arrow', 13)} Next: save this as an option and try a design change (step 5).`;
+  return `${icon('arrow', 13)} Next: compare your options (step 5) or export (step 6).`;
+}
 function targetText(a) {
-  return a > 0 ? `<span class="tgt bad" title="Copenhagen cloudburst target: max 10 cm water on terrain in a 100-year event">${icon('alert', 12)} Above Cph. 10 cm target</span>` : `<span class="tgt ok" title="Copenhagen cloudburst target: max 10 cm water on terrain in a 100-year event">${icon('check', 12)} Meets Cph. 10 cm target</span>`;
+  return a > 0 ? `<span class="tgt bad">${icon('alert', 12)} Above Copenhagen's 10 cm goal</span>` : `<span class="tgt ok">${icon('check', 12)} Meets Copenhagen's 10 cm goal</span>`;
 }
 
 function stackBar(parts, total) {
-  const bar = h('div.stack');
+  const bar = h('div.stack', { role: 'img', 'aria-label': parts.map((p) => `${p.l}: ${fmtVol(p.v)} cubic metres`).join(', ') });
   for (const p of parts) if (p.v > 0) bar.append(h('div.seg', { style: { width: `${(p.v / total) * 100}%`, background: p.c }, title: `${p.l}: ${fmtVol(p.v)} m³` }));
   const leg = h('div.stack-leg');
   for (const p of parts) leg.append(h('div', h('span.sw', { style: { background: p.c } }), h('span', p.l), h('b', `${fmtVol(p.v)} m³`), h('span.muted', `${Math.round((p.v / total) * 100)} %`)));
@@ -856,38 +1172,40 @@ function stackBar(parts, total) {
 }
 function balanceCard(st) {
   const lost = Math.max(0, st.rainVolumeM3 - st.effectiveVolumeM3);
-  return h('div.card2', h('div.c-head', h('h4', 'Where the rain goes'), h('span.muted', `${fmtVol(st.rainVolumeM3)} m³ rain`)),
+  return h('div.card2', h('div.c-head', h('h4', 'Where the rain goes'), h('span.muted', `${fmtVol(st.rainVolumeM3)} m³ of rain`)),
     ...stackBar([
-      { l: 'Sewer, infiltration, losses', v: lost, c: '#3b4b63' },
-      { l: 'Ponds in bluespots', v: st.storedVolumeM3, c: '#1F78C8' },
-      { l: 'Leaves the site', v: st.outflowVolumeM3, c: '#7cc4f2' },
+      { l: 'Taken by sewer, soil and surfaces', v: lost, c: '#3b4b63' },
+      { l: 'Stands in ponds', v: st.storedVolumeM3, c: '#1F78C8' },
+      { l: 'Runs off the site', v: st.outflowVolumeM3, c: '#7cc4f2' },
     ], st.rainVolumeM3));
 }
 function massCard(m) {
   const total = m.rainM3 + (m.initialWaterM3 || 0);
-  return h('div.card2', h('div.c-head', h('h4', 'Mass balance'), h('span.muted', `${fmtVol(m.rainM3)} m³ rain · error ${Math.abs(m.errorFraction) * 100 < 0.001 ? '< 0.001' : (Math.abs(m.errorFraction) * 100).toFixed(3)} %`)),
+  const err = Math.abs(m.errorFraction) * 100;
+  return h('div.card2', h('div.c-head', h('h4', 'Where the rain went'), h('span.muted', `${fmtVol(m.rainM3)} m³ of rain`)),
     ...stackBar([
-      { l: 'Initial loss', v: m.initialLossM3, c: '#56657c' },
-      { l: 'Infiltrated', v: m.infiltratedM3, c: '#5AAE61' },
-      { l: 'Sewer', v: m.sewerM3, c: '#8b7fd6' },
-      { l: 'Left boundary', v: m.boundaryOutM3, c: '#7cc4f2' },
-      { l: 'On site at end', v: m.storedM3, c: '#1F78C8' },
-    ], total));
+      { l: 'Wetted surfaces, filled hollows', v: m.initialLossM3, c: '#56657c' },
+      { l: 'Soaked into the ground', v: m.infiltratedM3, c: '#5AAE61' },
+      { l: 'Into the sewer', v: m.sewerM3, c: '#8b7fd6' },
+      { l: 'Ran off the site edge', v: m.boundaryOutM3, c: '#7cc4f2' },
+      { l: 'Still on site at the end', v: m.storedM3, c: '#1F78C8' },
+    ], total),
+    h('div.c-foot', 'Book-keeping error ', h('b', err < 0.001 ? '< 0.001 %' : `${err.toFixed(3)} %`), help('massError')));
 }
 
 function bluespotCard() {
   const top = topBluespots(S.instant, 8);
   const tbl = h('table.bs');
-  tbl.append(h('thead', h('tr', h('th', '#'), h('th.r', 'Volume'), h('th.r', 'Depth'), h('th.r', 'Area'), h('th', ''))));
+  tbl.append(h('thead', h('tr', h('th', '#'), h('th.r', 'Volume'), h('th.r', 'Deepest'), h('th.r', 'Area'), h('th', 'Status'))));
   const tb = h('tbody');
   top.forEach((b, i) => {
-    const tr = h('tr', { onclick: () => zoomToBluespot(b, tr), title: 'Zoom to bluespot' },
+    const tr = h('tr', { tabIndex: 0, onclick: () => zoomToBluespot(b, tr), onkeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); zoomToBluespot(b, tr); } }, title: 'Show this pond on the map' },
       h('td', h('span.rank', String(i + 1))), h('td.r', `${fmtVol(b.volumeM3)} m³`), h('td.r', fmtCm(b.maxDepthM)), h('td.r', fmtArea(b.areaM2)),
-      h('td', b.spills ? h('span.pill.spill', 'spills') : h('span.pill.fill', `${Math.round((b.volumeM3 / Math.max(1e-9, b.capacityM3)) * 100)} %`)));
+      h('td', b.spills ? h('span.pill.spill', 'full, overflows') : h('span.pill.fill', `${Math.round((b.volumeM3 / Math.max(1e-9, b.capacityM3)) * 100)} % full`)));
     tb.append(tr);
   });
   tbl.append(tb);
-  return h('div.card2', h('div.c-head', h('h4', 'Largest bluespots'), h('span.muted', 'click to zoom')), top.length ? tbl : h('p.muted', 'No bluespots above 1 m³.'));
+  return h('div.card2', h('div.c-head', h('h4', 'Largest ponds', help('bluespot')), h('span.muted', 'click a row to zoom')), top.length ? tbl : h('p.muted', 'No ponds above 1 m³. The water runs off or soaks in.'));
 }
 function zoomToBluespot(b, tr) {
   $$('table.bs tr.sel').forEach((x) => x.classList.remove('sel')); tr && tr.classList.add('sel');
@@ -911,46 +1229,39 @@ async function computeRetention() {
 }
 function retentionCard() {
   const R = S.retention;
-  const inp = h('input.num', { type: 'number', min: 0.1, max: 50, step: 0.1, value: R.dischargeLSHa });
-  inp.addEventListener('input', () => { const v = +inp.value; if (v > 0) { R.dischargeLSHa = v; computeRetentionDebounced(); } });
-  return h('div.card2.retention', h('div.c-head', h('h4', 'Retention volume'), h('span.chip.tiny', 'indicative')),
+  const inp = h('input.num', { type: 'number', min: 0.1, max: 50, step: 0.1, value: R.dischargeLSHa, 'aria-label': 'Allowed discharge in litres per second per hectare' });
+  inp.addEventListener('input', () => { const v = +String(inp.value).replace(',', '.'); if (v > 0) { R.dischargeLSHa = v; computeRetentionDebounced(); } });
+  const det = h('details.card2.retention.advanced', { open: !!R.open, ontoggle: () => { R.open = det.open; } },
+    h('summary.c-head', h('h4', 'Storage needed for a discharge limit'), h('span.chip.tiny', 'indicative')),
+    h('p.step-note', TERMS.retention),
     h('div.ret-in',
-      h('label', 'Allowed discharge', h('div.inwrap', inp, h('span', 'l/s/ha'))),
-      h('label', 'Return period', segControl([5, 10, 20].map((v) => ({ v, html: `T${v}` })), R.returnPeriod, (v) => { R.returnPeriod = v; computeRetention(); }, 'rp'))),
+      h('label', 'Allowed discharge to sewer', h('div.inwrap', inp, h('span', 'l/s per ha'))),
+      h('label', 'Design storm for storage', segControl([5, 10, 20].map((v) => ({ v, html: `${v}-year` })), R.returnPeriod, (v) => { R.returnPeriod = v; computeRetention(); }, 'rp'))),
     h('div.ret-out#retOut'));
+  return det;
 }
 function updateRetentionCard() {
   const el = $('#retOut'); const r = S.retention.result; if (!el || !r) return;
   el.innerHTML = '';
   el.append(h('div.big', h('span.num', fmtInt(r.requiredStorageM3)), h('span.unit', 'm³')),
-    h('div.ret-sub', 'required storage (box rain method, safety factor 1.2)'),
-    h('div.kv', h('span', 'Reduced area'), h('b', `${fmtArea(r.reducedAreaM2)}  (C ${r.meanC.toFixed(2)})`)),
-    h('div.kv', h('span', 'Outflow'), h('b', `${fmt1(r.outflowLS)} l/s`)),
-    h('div.kv', h('span', 'Critical duration'), h('b', r.criticalDurationMin >= 120 ? `${fmt1(r.criticalDurationMin / 60)} h` : `${fmtInt(r.criticalDurationMin)} min`)));
+    h('div.ret-sub', 'storage the site needs (box-rain method, safety factor 1.2)'),
+    h('div.kv', h('span', 'Effective sealed area (C·A)'), h('b', `${fmtArea(r.reducedAreaM2)}  (average C ${r.meanC.toFixed(2)})`)),
+    h('div.kv', h('span', 'Allowed outflow'), h('b', `${fmt1(r.outflowLS)} l/s`)),
+    h('div.kv', h('span', 'Longest storm to store'), h('b', r.criticalDurationMin >= 120 ? `${fmt1(r.criticalDurationMin / 60)} h` : `${fmtInt(r.criticalDurationMin)} min`)));
 }
 
 // ------------------------------------------------------------------------------------------------ options & compare
-function optionsCard() {
-  const card = h('div.card2', h('div.c-head', h('h4', 'Options & compare'), h('span.muted', `${S.options.length} saved`)));
-  const pair = S.site && S.site.info.compareWith && sampleInfo(S.site.info.compareWith);
-  if (pair) {
-    const nm = shortName(pair.name);
-    card.append(h('button.btn.accent.wide#pairBtn', { onclick: comparePair, html: `${icon('compare', 15)} Compare with ‘${nm}’` }));
-  }
-  const list = h('div.opts');
-  S.options.forEach((o, i) => list.append(h('div.opt', h('span.opt-letter', String.fromCharCode(65 + i)), h('div.opt-txt', h('b', o.name), h('span', o.caption)),
-    h('button.icon-btn', { title: 'Remove', html: icon('x', 14), onclick: () => { S.options.splice(i, 1); updateResults(); } }))));
-  card.append(list);
-  card.append(h('div.row-btns',
-    h('button.btn.ghost', { onclick: saveOption, disabled: !S.instant, html: `${icon('save', 14)} Save as option` }),
-    h('button.btn.ghost', { onclick: () => enterCompare(S.options[S.options.length - 2], S.options[S.options.length - 1], 'swipe'), disabled: S.options.length < 2, html: `${icon('compare', 14)} Compare last two` })));
-  return card;
-}
 function shortName(name) { const m = /[–-]\s*(.+)$/.exec(name); return (m ? m[1] : name).replace(/\s*\(.*\)/, '').trim(); }
+/** What makes this design different from the site as drawn, in words. */
+function designLabel() {
+  const parts = Object.entries(S.surfaceSwap).map(([from, to]) => `${(mat(from) || { name: from }).name} → ${(mat(to) || { name: to }).name}`);
+  if (S.groundMaterial) parts.push(`ground → ${(mat(S.groundMaterial) || { name: S.groundMaterial }).name}`);
+  return parts.length ? parts.join(', ') : 'as drawn';
+}
 
-function snapshot(name, grid, sampleJson, inst, base) {
+function snapshot(name, grid, sampleJson, inst, base, short = null) {
   return {
-    id: Math.random().toString(36).slice(2), name, short: shortName(name), caption: captionText(),
+    id: Math.random().toString(36).slice(2), name, short: short || shortName(name), caption: captionText(),
     grid, base: base || baseCanvas(grid, S.info.palette), buildingsVec: sampleJson ? sampleJson.buildings : null,
     buildingsRaster: sampleJson ? null : buildingsCanvas(grid), depth: inst.depth, stats: inst.stats, bluespots: inst.bluespots, paths: inst.paths,
     report: reportOptionMeta(S, grid, sampleJson, { settingsKey }), // [report-hook] inputs/dynamic/retention for the PDF report
@@ -959,18 +1270,20 @@ function snapshot(name, grid, sampleJson, inst, base) {
 function saveOption() {
   if (!S.instant) return;
   const letter = String.fromCharCode(65 + S.options.length);
-  const p = preset();
-  S.options.push(snapshot(`${S.site.name} – ${letter}: ${p.name.replace(' (cloudburst)', '')}, ${SEWER[S.settings.sewerMode].label.toLowerCase()}`, S.grid, S.sampleJson, S.instant, S.scene.base));
-  toast(`Saved option ${letter}. Change a setting and save another to compare.`, 'ok');
-  updateResults();
+  // The design difference first, so two options stay distinguishable when the name is cut short.
+  const desc = `${designLabel()} · ${presetName(preset())}, ${SEWER[S.settings.sewerMode].label.toLowerCase()}${SEWER[S.settings.sewerMode].v ? ' sewer' : ''}`;
+  S.options.push(snapshot(`Option ${letter}: ${desc}`, S.grid, S.sampleJson, S.instant, S.scene.base, `Option ${letter}`));
+  toast(S.options.length === 1 ? 'Saved option A. Now change a surface or the rain, then save option B.' : `Saved option ${letter}. Ready to compare.`, 'ok');
+  renderLeft(); updateResults();
+  focusStep('compare');
 }
 
 async function comparePair() {
   const other = sampleInfo(S.site.info.compareWith); if (!other || !S.instant) return;
-  const btn = $('#pairBtn'); if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Running both options…'; }
+  const btn = $('#pairBtn'); if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Running the redesigned version…'; }
   try {
-    const cur = snapshot(S.site.info.name, S.grid, S.sampleJson, S.instant, S.scene.base);
-    const g2 = await S.cb.buildGrid({ sample: other.id }, { cellSize: S.grid.dx });
+    const cur = snapshot(`${S.site.info.name}${Object.keys(S.surfaceSwap).length || S.groundMaterial ? ` (${designLabel()})` : ''}`, S.grid, S.sampleJson, S.instant, S.scene.base, shortName(S.site.info.name));
+    const g2 = await S.cb.buildGrid({ sample: other.id }, gridSettings(S.grid.dx));
     const sj2 = await S.cb.sample(other.id);
     const r2 = await S.cb.runInstant(g2, scenarioInstant());
     S.cb.freeGrid(g2);
@@ -979,7 +1292,7 @@ async function comparePair() {
     const [a, b] = beforeFirst ? [cur, oth] : [oth, cur];
     S.options = S.options.filter((o) => o.name !== a.name && o.name !== b.name).concat([a, b]);
     enterCompare(a, b, 'diff');
-  } catch (e) { console.error(e); toast(`Compare failed: ${e.message}`, 'error'); updateResults(); }
+  } catch (e) { console.error(e); toast(`Could not compare: ${e.message}`, 'error'); renderLeft(); }
 }
 
 function enterCompare(a, b, mode = 'swipe') {
@@ -987,6 +1300,7 @@ function enterCompare(a, b, mode = 'swipe') {
   if (S.view3d) toggle3D(false);
   stopPlay();
   S.compare = { a, b, mode };
+  $('#firstRunHint').classList.add('hidden');
   renderLeft(); renderMapChrome(); refreshMap(); updateResults(); renderCaption();
   map.fit(true);
 }
@@ -1011,32 +1325,39 @@ function renderCompareScenes() {
 }
 function renderCompareResults(body) {
   const { a, b } = S.compare; body.innerHTML = '';
-  $('#resTitle').textContent = 'Compare options'; $('#liveText').textContent = 'B − A';
+  $('#resTitle').textContent = 'A vs B'; $('#live').classList.add('hidden');
   const rows = [
-    ['Flooded volume', a.stats.storedVolumeM3, b.stats.storedVolumeM3, (v) => `${fmtVol(v)} m³`, true],
-    ['Area > 10 cm', a.stats.areaOver10CmM2, b.stats.areaOver10CmM2, (v) => `${fmtInt(v)} m²`, true],
-    ['Flooded area', a.stats.floodedAreaM2, b.stats.floodedAreaM2, (v) => fmtArea(v), true],
-    ['Max depth', a.stats.maxDepthM, b.stats.maxDepthM, (v) => fmtCm(v), true],
-    ['Leaves the site', a.stats.outflowVolumeM3, b.stats.outflowVolumeM3, (v) => `${fmtVol(v)} m³`, true],
-    ['Bluespots', a.stats.bluespotCount, b.stats.bluespotCount, (v) => fmtInt(v), false],
+    ['Area deeper than 10 cm', a.stats.areaOver10CmM2, b.stats.areaOver10CmM2, (v) => `${fmtInt(v)} m²`, true],
+    ['Water standing in ponds', a.stats.storedVolumeM3, b.stats.storedVolumeM3, (v) => `${fmtVol(v)} m³`, true],
+    ['Wet area', a.stats.floodedAreaM2, b.stats.floodedAreaM2, (v) => fmtArea(v), true],
+    ['Deepest water', a.stats.maxDepthM, b.stats.maxDepthM, (v) => fmtCm(v), true],
+    ['Runs off the site', a.stats.outflowVolumeM3, b.stats.outflowVolumeM3, (v) => `${fmtVol(v)} m³`, true],
+    ['Ponds', a.stats.bluespotCount, b.stats.bluespotCount, (v) => fmtInt(v), false],
   ];
   const dv = b.stats.storedVolumeM3 - a.stats.storedVolumeM3, da = b.stats.areaOver10CmM2 - a.stats.areaOver10CmM2;
   const pct = (x, y) => (x > 0 ? Math.round(((y - x) / x) * 100) : 0);
+  const dout = b.stats.outflowVolumeM3 - a.stats.outflowVolumeM3;
+  const changes = [[da, `${fmtInt(Math.abs(da))} m² LESSMORE area deeper than 10 cm`, 1], [dv, `${fmtVol(Math.abs(dv))} m³ LESSMORE water standing in ponds`, 0.5], [dout, `${fmtVol(Math.abs(dout))} m³ LESSMORE water running off the site`, 0.5]]
+    .filter(([d, , eps]) => Math.abs(d) > eps);
+  const sign = Math.sign(changes.length ? changes[0][0] : 0);
+  const words = changes.map(([d, t]) => t.replace('LESSMORE', d < 0 ? 'less' : 'more'));
+  body.append(h(`div.verdict${!changes.length ? '' : sign < 0 ? '.ok' : '.bad'}#resVerdict`, { html: !changes.length
+    ? 'B and A give practically the same result in the quick check. Try a bigger change, or run the full simulation for both.'
+    : `Option B has ${words.join(', ').replace(/, ([^,]*)$/, ' and $1')}.` }));
+  const sgn = (d, f) => (Math.abs(d) < 0.05 ? '±0' : `${d > 0 ? '+' : '−'}${f(Math.abs(d))}`);
   body.append(h('div.tiles',
-    h(`div.tile${dv <= 0 ? '.good' : '.hot'}`, h('div.t-label', 'Δ Flooded volume'), h('div.t-val', h('span.num', `${dv > 0 ? '+' : '−'}${fmtVol(Math.abs(dv))}`), h('span.unit', 'm³')), h('div.t-sub', `${pct(a.stats.storedVolumeM3, b.stats.storedVolumeM3)} % vs A`)),
-    h(`div.tile${da <= 0 ? '.good' : '.hot'}`, h('div.t-label', 'Δ Area > 10 cm'), h('div.t-val', h('span.num', `${da > 0 ? '+' : '−'}${fmtInt(Math.abs(da))}`), h('span.unit', 'm²')), h('div.t-sub', `${pct(a.stats.areaOver10CmM2, b.stats.areaOver10CmM2)} % vs A`))));
-  const tbl = h('table.cmp', h('thead', h('tr', h('th', ''), h('th.r', h('span.opt-letter.sm', 'A')), h('th.r', h('span.opt-letter.sm.b', 'B')), h('th.r', 'Δ'))));
+    h(`div.tile${Math.abs(dv) < 0.5 ? '' : dv < 0 ? '.good' : '.hot'}`, h('div.t-label', 'Change in standing water'), h('div.t-val', h('span.num', sgn(dv, fmtVol)), h('span.unit', 'm³')), h('div.t-sub', `${pct(a.stats.storedVolumeM3, b.stats.storedVolumeM3)} % compared with A`)),
+    h(`div.tile${Math.abs(da) < 1 ? '' : da < 0 ? '.good' : '.hot'}`, h('div.t-label', 'Change in area deeper than 10 cm'), h('div.t-val', h('span.num', sgn(da, fmtInt)), h('span.unit', 'm²')), h('div.t-sub', `${pct(a.stats.areaOver10CmM2, b.stats.areaOver10CmM2)} % compared with A`))));
+  const tbl = h('table.cmp', h('thead', h('tr', h('th', ''), h('th.r', h('span.opt-letter.sm', 'A')), h('th.r', h('span.opt-letter.sm.b', 'B')), h('th.r', 'Change'))));
   const tb = h('tbody');
   for (const [l, x, y, f, lowerBetter] of rows) {
     const d = y - x; const cls = Math.abs(d) < 1e-6 ? '' : (d < 0) === lowerBetter ? 'down' : 'up';
     tb.append(h('tr', h('td', l), h('td.r', f(x)), h('td.r', f(y)), h(`td.r.${cls || 'eq'}`, Math.abs(d) < 1e-6 ? '–' : `${d > 0 ? '+' : '−'}${f(Math.abs(d))}`)));
   }
   tbl.append(tb);
-  body.append(h('div.card2', h('div.c-head', h('h4', 'A vs B')),
-    h('div.cmp-names', h('div', h('span.opt-letter.sm', 'A'), h('span', a.name)), h('div', h('span.opt-letter.sm.b', 'B'), h('span', b.name))), tbl));
-  body.append(h('div.row-btns',
-    h('button.btn.ghost', { onclick: () => { S.compare = { a: b, b: a, mode: S.compare.mode }; refreshMap(); updateResults(); renderCaption(); }, html: `${icon('swipe', 14)} Swap A/B` }),
-    h('button.btn.primary', { onclick: exitCompare, html: `${icon('x', 14)} Exit compare` })));
+  body.append(h('div.card2', h('div.c-head', h('h4', 'Numbers side by side'), h('span.muted', 'quick check, same rain')),
+    h('div.cmp-names', h('div', h('span.opt-letter.sm', 'A'), h('span', a.name)), h('div', h('span.opt-letter.sm.b', 'B'), h('span', b.name))), tbl,
+    h('p.step-note', 'Green: better in B. Red: worse in B.')));
 }
 
 // ------------------------------------------------------------------------------------------------ 3D
@@ -1069,7 +1390,7 @@ async function toggle3D(on) {
 function legendItems() {
   if (S.compare) return S.compare.mode === 'diff' ? { title: DIFF.title, ramp: DIFF } : { title: 'Water depth (cm)', ramp: DEPTH };
   if (S.layer === 'materials') return { title: 'Surface materials', mats: materialsPresent(S.grid, S.info.palette) };
-  const r = LAYERS[S.layer].ramp; return { title: `${$('#legend .lg-title')?.firstChild?.textContent || r.title} (${r.unit})`, ramp: r };
+  const r = LAYERS[S.layer].ramp; return { title: ($('#legend .lg-title > span')?.textContent || `${r.title} (${r.unit})`).trim(), ramp: r };
 }
 function exportPNG() {
   if (!S.grid) return;
@@ -1115,6 +1436,22 @@ function exportJSON() {
     options: S.options.map((o) => ({ name: o.name, caption: o.caption, stats: o.stats })),
   };
   download(`cloudburst-${S.site.id}-results.json`, JSON.stringify(round(out), null, 2));
+}
+
+// ------------------------------------------------------------------------------------------------ first-run hint
+/** A one-time, dismissible note over the map explaining what is on screen. Never blocks the map. */
+function showFirstRunHint() {
+  const el = $('#firstRunHint');
+  if (!el || el.dataset.shown || store.get(LS_HINT) || S.compare) return;
+  el.dataset.shown = '1'; el.innerHTML = '';
+  const close = () => { el.classList.add('hidden'); store.set(LS_HINT, '1'); };
+  el.append(
+    h('div.fh-txt',
+      h('b', 'This is where the rain goes.'),
+      h('span', ' Blue areas are ponds: low spots where water collects in this storm. Blue lines show where it runs. Hover the map to read depths.'),
+      h('span.fh-next', ' Try: pick another rain (step 2) or change a surface (step 3).')),
+    h('button.btn.ghost.small', { onclick: close }, 'Got it'));
+  el.classList.remove('hidden');
 }
 
 // ------------------------------------------------------------------------------------------------ misc

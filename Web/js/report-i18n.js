@@ -26,6 +26,7 @@ const EN = {
   kfMaxVel: 'Maximum velocity', kfHazardHigh: 'Area with hazard "danger for some" or higher', kfHv: 'Area where depth × velocity exceeds 0.5 m²/s',
   kfMassError: 'Mass balance error', kfInitialLoss: 'Initial loss (interception, depressions)', kfInfiltrated: 'Infiltrated', kfSewer: 'To sewer',
   kfStoredEnd: 'On site at end of simulation', kfMeanC: 'Mean runoff coefficient C', kfAllowedOut: 'Allowed discharge', kfCritDur: 'Critical rain duration',
+  designChanges: 'Surface changes made in the app (step 3)', designAsDrawn: 'none – surfaces as drawn', groundTo: 'everything else',
   kfTotalArea: 'Site area (model domain)', kfAllowedOutSite: 'Allowed outflow from the site', jbTable: 'soil table (JB)', tagInstant: 'INSTANT', tagDynamic: 'DYNAMIC',
   // table headers
   thQuantity: 'Quantity', thValue: 'Value', thUnit: 'Unit', thChange: 'Change {x}–{a}', thChangePct: 'Change %', thOption: 'Option',
@@ -55,7 +56,7 @@ const EN = {
   // maps
   mapDepthInstant: 'Water depth when bluespots are full (instant model)', mapDepthDyn: 'Maximum water depth over the event (dynamic model)', mapHazard: 'Flood hazard h·(v+0.5) (dynamic model)',
   mapVelocity: 'Maximum velocity (dynamic model)', mapMaterials: 'Surface materials', mapDiff: 'Change in maximum water depth, {b} minus {a}',
-  legendLabels: { diff: ['< -20 (drier)', '-20 to -10', '-10 to -1', '+1 to +10', '+10 to +20', '> +20 (wetter)'], hazard: ['< 0.5 low', '0.5–0.75 caution', '0.75–1.25 danger for some', '1.25–2 danger for most', '> 2 danger for all'] },
+  legendLabels: {}, // English legends use the app's own ramp labels (js/colors.js)
   legendDepth: 'Water depth (cm)', legendHazard: 'Hazard (m²/s)', legendVelocity: 'Velocity (m/s)', legendDiff: 'Depth change {b} – {a} (cm)',
   hiddenBelow: 'Depths below {cm} cm not shown.', flowPathNote: 'Blue lines: main flow paths, width increases with upstream volume. Numbered dots: largest bluespots (see table).',
   diffBetter: 'GREEN = less water in {b} than in {a}', diffWorse: 'RED = more water in {b} than in {a}', diffNote: 'Changes smaller than 1 cm are not shown. Red inside a planned retention or LAR area can be intended (water stored where it was designed to be); red elsewhere, especially near the site boundary, deserves attention.',
@@ -135,7 +136,7 @@ const EN = {
   shapeCds: 'Chicago design storm (CDS, alternating block)', shapeBox: 'Box rain (constant intensity)',
   // dialog
   dlgTitle: 'Export report (PDF)', dlgType: 'Report type', dlgSingle: 'Single result', dlgCompare: 'Compare options', dlgSource: 'Result',
-  dlgCurrent: 'Current result', dlgOptions: 'Options to compare (first ticked = baseline A)', dlgNoOptions: 'Save at least two options to compare (Results panel → Save as option), or open a before/after sample and use “Compare with …”.',
+  dlgCurrent: 'Current result', dlgOptions: 'Options to compare (first ticked = baseline A)', dlgNoOptions: 'Save at least two options first: step 5 “Compare designs” → “Save as option A”, change a surface or the rain, then “Save as option B”. A before/after sample can also use “Compare with …”.',
   dlgSaveCurrent: 'Save current result as option', dlgLanguage: 'Language', dlgDownload: 'Download PDF', dlgJson: 'Report data (JSON)', dlgCancel: 'Cancel',
   dlgWorking: 'Building report…', dlgDone: 'Report saved.', dlgProject: 'Project details (printed on every page)', dlgNotesPh: 'Free text, e.g. what was changed between the options, open questions for the authority.',
   dlgDisclaimer: 'The report is a transparent screening report. It always carries the statement “results are for design comparison, not for permit or compliance evidence”.',
@@ -162,6 +163,7 @@ const DA = {
   kfMaxVel: 'Største hastighed', kfHazardHigh: 'Areal med fare "farligt for nogle" eller højere', kfHv: 'Areal hvor dybde × hastighed overstiger 0,5 m²/s',
   kfMassError: 'Fejl i massebalance', kfInitialLoss: 'Initialtab (interception, lavninger)', kfInfiltrated: 'Nedsivet', kfSewer: 'Til kloak',
   kfStoredEnd: 'På grunden ved simuleringens slutning', kfMeanC: 'Gennemsnitlig afløbskoefficient C', kfAllowedOut: 'Tilladt afledning', kfCritDur: 'Kritisk regnvarighed',
+  designChanges: 'Overfladeændringer foretaget i appen (trin 3)', designAsDrawn: 'ingen – overflader som tegnet', groundTo: 'alt andet',
   kfTotalArea: 'Grundens areal (modelområde)', kfAllowedOutSite: 'Tilladt afledning fra grunden', jbTable: 'jordtabel (JB)', tagInstant: 'ØJEBLIK', tagDynamic: 'DYNAMISK',
   thQuantity: 'Størrelse', thValue: 'Værdi', thUnit: 'Enhed', thChange: 'Ændring {x}–{a}', thChangePct: 'Ændring %', thOption: 'Forslag',
   thMaterial: 'Overflade / materiale', thArea: 'Areal', thShare: 'Andel', thCNormal: 'C normal', thCCb: 'C skybrud sand / ler', thManning: 'Manning n',
@@ -186,7 +188,7 @@ const DA = {
   buildings: 'Bygninger (tage, behandlet som forhindringer; tagvand efter afløbsforudsætningen)',
   mapDepthInstant: 'Vanddybde når bluespots er fyldt (øjebliksmodel)', mapDepthDyn: 'Maksimal vanddybde under hændelsen (dynamisk model)', mapHazard: 'Faregrad h·(v+0,5) (dynamisk model)',
   mapVelocity: 'Maksimal hastighed (dynamisk model)', mapMaterials: 'Overflader og materialer', mapDiff: 'Ændring i maksimal vanddybde, {b} minus {a}',
-  legendLabels: { diff: ['< -20 (tørrere)', '-20 til -10', '-10 til -1', '+1 til +10', '+10 til +20', '> +20 (vådere)'], hazard: ['< 0,5 lav', '0,5–0,75 forsigtighed', '0,75–1,25 farligt for nogle', '1,25–2 farligt for de fleste', '> 2 farligt for alle'], velocity: ['0,05–0,25', '0,25–0,5', '0,5–1', '1–2', '> 2'] },
+  legendLabels: { diff: ['Tørrere med > 20', 'Tørrere med 10–20', 'Tørrere med 1–10', 'Vådere med 1–10', 'Vådere med 10–20', 'Vådere med > 20'], hazard: ['Lav  (< 0,5)', 'Forsigtighed  (0,5–0,75)', 'Farligt for nogle  (0,75–1,25)', 'Farligt for de fleste  (1,25–2)', 'Farligt for alle  (> 2)'], velocity: ['0,05–0,25', '0,25–0,5', '0,5–1', '1–2', '> 2'] },
   legendDepth: 'Vanddybde (cm)', legendHazard: 'Faregrad (m²/s)', legendVelocity: 'Hastighed (m/s)', legendDiff: 'Dybdeændring {b} – {a} (cm)',
   hiddenBelow: 'Dybder under {cm} cm er ikke vist.', flowPathNote: 'Blå linjer: vigtigste strømningsveje, bredden vokser med opstrøms volumen. Nummererede punkter: største bluespots (se tabel).',
   diffBetter: 'GRØN = mindre vand i {b} end i {a}', diffWorse: 'RØD = mere vand i {b} end i {a}', diffNote: 'Ændringer under 1 cm er ikke vist. Rødt i et planlagt forsinkelses- eller LAR-areal kan være tilsigtet (vandet står hvor det er planlagt); rødt andre steder, især nær grundens afgrænsning, bør undersøges.',
@@ -258,7 +260,7 @@ const DA = {
   presetNames: { t10: 'T = 10 år', t100: 'T = 100 år (skybrud)', test2011: '2011-test (København 2. juli 2011)', box83: 'Kasseregn 83 mm / 4 t' },
   shapeCds: 'Chicago-regn (CDS, alternerende blokke)', shapeBox: 'Kasseregn (konstant intensitet)',
   dlgTitle: 'Eksportér rapport (PDF)', dlgType: 'Rapporttype', dlgSingle: 'Ét resultat', dlgCompare: 'Sammenlign forslag', dlgSource: 'Resultat',
-  dlgCurrent: 'Aktuelt resultat', dlgOptions: 'Forslag der sammenlignes (første afkrydsede = basis A)', dlgNoOptions: 'Gem mindst to forslag for at sammenligne (Resultater → Gem som forslag), eller åbn et før/efter-eksempel og brug “Sammenlign med …”.',
+  dlgCurrent: 'Aktuelt resultat', dlgOptions: 'Forslag der sammenlignes (første afkrydsede = basis A)', dlgNoOptions: 'Gem først mindst to forslag: trin 5 “Compare designs” → “Save as option A”, ændr en overflade eller regnen, og gem “option B”. Et før/efter-eksempel kan også bruge “Compare with …”.',
   dlgSaveCurrent: 'Gem aktuelt resultat som forslag', dlgLanguage: 'Sprog', dlgDownload: 'Hent PDF', dlgJson: 'Rapportdata (JSON)', dlgCancel: 'Annullér',
   dlgWorking: 'Laver rapport…', dlgDone: 'Rapporten er gemt.', dlgProject: 'Projektoplysninger (trykkes på hver side)', dlgNotesPh: 'Fri tekst, fx hvad der er ændret mellem forslagene, åbne spørgsmål til myndigheden.',
   dlgDisclaimer: 'Rapporten er en gennemsigtig screeningsrapport. Den bærer altid teksten “resultaterne er til sammenligning af forslag, ikke dokumentation til myndighedsgodkendelse eller overholdelse af krav”.',

@@ -1,10 +1,12 @@
 // "Export report" for authorities: dialog, adapters from app state to report records, and the generate pipeline
-// (records → report-model.js → report-pdf.js). Hooked into app.js with three small, marked lines:
-//   1. import { openReportDialog, reportOptionMeta } from './js/report.js';
-//   2. a "PDF" button in the export bar → openReportDialog(S, hooks)
-//   3. snapshot() stores `report: reportOptionMeta(S, grid, sampleJson, hooks)` so a saved option remembers its inputs.
-// Everything else (state, UI, CSS) lives in this file and in report-*.js / report.css.
+// (records → report-model.js → report-pdf.js). Hooked into app.js with two small, marked lines:
+//   1. import { reportOptionMeta } from './js/report.js';   (importing registers the export action via js/hooks.js)
+//   2. snapshot() stores `report: reportOptionMeta(S, grid, sampleJson, { settingsKey })` so a saved option
+//      remembers the inputs, dynamic run and retention it was saved with.
+// The report uses the app's own saved options (step 5) – there is no separate option state here.
+// Everything else (UI, CSS) lives in this file and in report-*.js / report.css.
 import { translator, LANGS } from './report-i18n.js';
+import { addExportAction } from './hooks.js';
 // The model and PDF modules are loaded on first use, so a problem in them can never stop the app itself from loading.
 const lazy = { model: () => import('./report-model.js'), pdf: () => import('./report-pdf.js') };
 
@@ -22,9 +24,18 @@ function siteInfoOf(S) {
   const i = S.site.info || {};
   return { id: S.site.id, name: S.site.name, kind: S.site.kind, description: i.description || '', bbox: i.bbox || null, dhmFile: i.dhmFile || null };
 }
+let appSettingsKey = null; // app.js settingsKey(), handed over by the snapshot hook
+/** Same inputs as app.js settingsKey(); only used until the snapshot hook has handed over the real one. */
+const fallbackKey = (S) => JSON.stringify({ ...S.settings, cell: S.dynCell, dur: S.dynDuration, swap: S.surfaceSwap, ground: S.groundMaterial });
+/** The dynamic result, if it was run with the current inputs (a stale run must not be reported against them). */
 function freshDyn(S, hooks) {
   if (!S.dyn) return null;
-  try { return hooks && hooks.settingsKey && S.dyn.key !== hooks.settingsKey() ? null : S.dyn; } catch { return S.dyn; }
+  const key = (hooks && hooks.settingsKey) || appSettingsKey || (() => fallbackKey(S));
+  try { return S.dyn.key !== key() ? null : S.dyn; } catch { return S.dyn; }
+}
+/** Settings plus the surface design changes (step 3), copied so later edits do not change a saved option. */
+function settingsOf(S) {
+  return { ...S.settings, surfaceSwap: { ...(S.surfaceSwap || {}) }, groundMaterial: S.groundMaterial || null };
 }
 function retentionNow(S) {
   if (!S.retention || !S.retention.result) return null;
@@ -36,11 +47,12 @@ function retentionNow(S) {
  * and retention if they belong to this grid). Cheap: arrays are referenced, not copied.
  */
 export function reportOptionMeta(S, grid, sampleJson, hooks) {
+  if (hooks && hooks.settingsKey) appSettingsKey = hooks.settingsKey;
   const current = grid === S.grid;
   const otherInfo = sampleJson && sampleJson.info;
   return {
     createdAt: new Date().toISOString(),
-    settings: { ...S.settings },
+    settings: current ? settingsOf(S) : { ...S.settings, surfaceSwap: {}, groundMaterial: null },
     site: current || !otherInfo ? siteInfoOf(S) : { id: otherInfo.id, name: otherInfo.name, kind: otherInfo.kind, description: otherInfo.description || '', bbox: otherInfo.bbox || null, dhmFile: otherInfo.dhmFile || null },
     siteDesc: current ? S.siteDesc : otherInfo ? { sample: otherInfo.id } : null,
     dyn: current ? freshDyn(S, hooks) : null,
@@ -51,7 +63,7 @@ export function reportOptionMeta(S, grid, sampleJson, hooks) {
 function recordFromCurrent(S, hooks) {
   if (!S.grid || !S.instant) throw new Error('No result yet: open a site and let the instant model run first.');
   return {
-    id: 'current', name: S.site.name, createdAt: new Date().toISOString(), site: siteInfoOf(S), settings: { ...S.settings },
+    id: 'current', name: S.site.name, createdAt: new Date().toISOString(), site: siteInfoOf(S), settings: settingsOf(S),
     preset: S.info.presets.find((p) => p.id === S.settings.presetId) || null,
     grid: S.grid, instant: S.instant, base: S.scene && S.scene.base, buildingsVec: S.sampleJson ? S.sampleJson.buildings : null,
     dyn: freshDyn(S, hooks), retention: retentionNow(S), siteDesc: S.siteDesc, palette: S.info.palette,
@@ -216,6 +228,15 @@ export function openReportDialog(S, hooks = {}) {
   document.body.append(overlay);
   return { close };
 }
+
+// ------------------------------------------------------------------------------------------------ registration
+addExportAction({
+  id: 'report', primary: true, order: 5, icon: 'file',
+  label: 'Screening report (PDF)',
+  description: 'For the municipality or utility: inputs, maps, water balance, method and limitations. One result, or option A vs B.',
+  enabled: (ctx) => (ctx.grid && ctx.instant ? true : 'Load a site first'),
+  run: (ctx) => openReportDialog(ctx.state, {}),
+});
 
 // test / automation hook (used by the Playwright verification, see docs/reports.md)
 window.__cbReport = { generateReport, buildRecords, openReportDialog, buildReportModel: async (...a) => (await lazy.model()).buildReportModel(...a) };

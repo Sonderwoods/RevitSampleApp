@@ -17,7 +17,7 @@ async function openSite(p, id) {
   await p.waitForFunction((sid) => window.__cb && window.__cb.site && window.__cb.site.id === sid && window.__cb.instant && window.__cb.retention.result, id, { timeout: 90000 });
 }
 async function fillDialog(p, kind) {
-  await p.click('#reportBtn');
+  await p.click('[data-export="report"]');
   await p.waitForSelector('#reportDlg');
   await p.click(`#reportDlg .rpt-seg button[data-lang="${lang}"]`);
   await p.click(`#reportDlg .rpt-seg button[data-kind="${kind}"]`);
@@ -43,6 +43,7 @@ async function download(p, file) {
 
   // ---------- single report with a dynamic run (school yard after, 2 m dynamic grid)
   await openSite(p, 'school_after');
+  await p.click('#step-run details.advanced summary'); // "Simulation settings"
   await p.click('.segctl[data-name="dyncell"] button[data-v="2"]');
   await p.click('#runDyn');
   await p.waitForFunction(() => window.__cb.dyn && !window.__cb.dynRun, null, { timeout: 300000 });

@@ -51,6 +51,7 @@ function inputsOf(rec, t, nf) {
     grid: { cellSizeM: g.dx, nx: g.nx, ny: g.ny, x0: g.x0, y0: g.y0, widthM: g.nx * g.dx, heightM: g.ny * g.dx, cells: g.nx * g.ny, warnings: [...(g.warnings || [])] },
     dynamic: rec.dyn ? { cellSizeM: rec.dyn.grid.dx, simulatedMin: (rec.dyn.mass.simulatedS || 0) / 60 } : null,
     caption: captionFor(rec, t, nf),
+    design: designOf(rec),
   };
 }
 
@@ -63,6 +64,14 @@ function captionFor(rec, t, nf) {
   const cell = rec.dyn ? `${nf.fixed(rec.grid.dx, 1)} m / ${nf.fixed(rec.dyn.grid.dx, 1)} m` : `${nf.fixed(rec.grid.dx, 1)} m`;
   return [`${t('presetNames')[r.presetId] || r.presetName}: ${nf.smart(r.depthMm)} mm × ${nf.fixed(r.climateFactor, 2)} = ${nf.smart(r.designDepthMm)} mm`,
     sewer.split(',')[0], `${t('moisture')}: ${moist.split(' (')[0].toLowerCase()}`, `${t('cellSize')} ${cell}`, t('screeningShort').split(' – ')[0]].join(' · ');
+}
+
+/** Surface swaps made in the app (step 3) as [{from, to}] material names; the ground swap has from = null. */
+function designOf(rec) {
+  const s = rec.settings || {}; const mats = rec.palette.materials; const nm = (id) => (mats.find((m) => m.id === id) || { name: id }).name;
+  const out = Object.entries(s.surfaceSwap || {}).map(([from, to]) => ({ from: nm(from), to: nm(to) }));
+  if (s.groundMaterial) out.push({ from: null, to: nm(s.groundMaterial) });
+  return out;
 }
 
 function surfacesOf(rec) {
