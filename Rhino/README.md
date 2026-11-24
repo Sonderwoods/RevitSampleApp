@@ -39,6 +39,12 @@ folder, so **keep all files in one folder**.
 
 ## Install
 
+**Yak package (easiest)**: drag `cloudburst-<version>-…-win.yak` (from the GitHub release, or built with
+`./Rhino/pack-yak.ps1` after `./build.ps1`) onto a Rhino 8 window and restart Rhino. It installs the plug-in, the
+Grasshopper components and the engine DLLs together under `%AppData%\McNeel\Rhinoceros\packages\8.0\cloudburst`.
+Command line: `"C:\Program Files\Rhino 8\System\Yak.exe" install cloudburst-<version>-…-win.yak`. Remove any manually
+installed copy first, so the plug-in is not registered twice. The manifest is `Rhino/yak/manifest.yml`.
+
 **Rhino plug-in**: drag `Cloudburst.Rhino.rhp` onto a Rhino 8 window, or *Tools → Options → Plug-ins → Install…*
 (PlugInManager). It loads at start-up and prints `Cloudburst … loaded (engine x.y.z)` on the command line.
 

@@ -1,0 +1,20 @@
+# Yak package manifest (Rhino Package Manager). Rhino/pack-yak.ps1 fills in $version and builds the .yak.
+name: cloudburst
+version: $version
+authors:
+  - Cloudburst
+description: >
+  Cloudburst: rainwater / cloudburst flood screening for Rhino 8 and Grasshopper. Bluespots, flow paths and a
+  dynamic simulation on your own terrain, buildings and surfaces. Run the Cloudburst command in Rhino; the
+  Grasshopper components are on the Cloudburst tab. Screening model, not for compliance.
+url: https://github.com/Sonderwoods/RevitSampleApp
+icon: icon.png
+keywords:
+  - cloudburst
+  - rainwater
+  - flood
+  - stormwater
+  - bluespot
+  - hydrology
+  - grasshopper
+  - guid:6C1D8E36-2F4B-4E59-9B1A-3D7A5C0E8B21

@@ -28,8 +28,10 @@
     "shortDescription": "Rainwater / cloudburst screening",
     "longDescription": "Where does the water go? Bluespot screening and 2D cloudburst simulation on the same engine as the Rhino and Revit plug-ins.",
     "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.png", "icons/icon.ico"],
+    "resources": { "plugins/": "plugins/" },
     "windows": {
-      "webviewInstallMode": { "type": "downloadBootstrapper" }
+      "webviewInstallMode": { "type": "downloadBootstrapper" },
+      "nsis": { "installerHooks": "installer-hooks.nsh" }
     }
   }
 }

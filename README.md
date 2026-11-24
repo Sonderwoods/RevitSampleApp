@@ -102,7 +102,14 @@ Notes:
 
 ## Install
 
-* **Rhino 8**: drag `dist/Rhino/Cloudburst.Rhino.rhp` into Rhino, run `Cloudburst`. Grasshopper: copy
+* **Everything (easiest)**: run `Cloudburst_<version>_x64-setup.exe` from the release page. It needs no administrator
+  rights, installs the desktop app, and offers to install the Revit 2026 add-in and the Rhino 8 + Grasshopper plug-in
+  when it finds those programs. Uninstalling removes them again. (The `.msi` installs the desktop app only and needs
+  administrator rights.)
+* **Rhino 8 (Yak package)**: drag `cloudburst-<version>-…-win.yak` from the release page into Rhino 8 and
+  restart Rhino. It installs the plug-in and the Grasshopper components together. Build it yourself with
+  `./Rhino/pack-yak.ps1` after `./build.ps1`.
+* **Rhino 8 (manual)**: drag `dist/Rhino/Cloudburst.Rhino.rhp` into Rhino, run `Cloudburst`. Grasshopper: copy
   `Cloudburst.Grasshopper.gha` *and the DLLs next to it* into the Grasshopper Libraries folder (or add `dist/Rhino` as a
   library folder). See [Rhino/README.md](Rhino/README.md).
 * **Revit 2026**: copy `dist/Revit/Cloudburst.addin` and the `dist/Revit/Cloudburst/` folder to
