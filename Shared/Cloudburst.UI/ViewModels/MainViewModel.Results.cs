@@ -37,11 +37,11 @@ namespace Cloudburst.UI.ViewModels
         {
             void Add(UiLayer l, string title, string glyph, bool dyn) => Layers.Add(new LayerOptionViewModel(l, title, glyph, dyn, OnLayerChosen));
             Add(UiLayer.Depth, "Depth", "", false);
-            Add(UiLayer.Velocity, "Velocity", "", true);
-            Add(UiLayer.Hazard, "Hazard", "", true);
-            Add(UiLayer.TimeToPeak, "Time to peak", "", true);
-            Add(UiLayer.FlowPaths, "Flow paths", "", false);
-            Add(UiLayer.Materials, "Materials", "", false);
+            Add(UiLayer.Velocity, "Speed", "", true);
+            Add(UiLayer.Hazard, "Danger", "", true);
+            Add(UiLayer.TimeToPeak, "Timing", "", true);
+            Add(UiLayer.FlowPaths, "Flow lines", "", false);
+            Add(UiLayer.Materials, "Surfaces", "", false);
             Layers[0].SetSelectedSilently(true);
             RefreshLayers();
 
@@ -370,8 +370,8 @@ namespace Cloudburst.UI.ViewModels
             else if (inst != null)
             {
                 var s = inst.Stats;
-                StatModel = "Instant model (M1) · bluespots at the end of the rain";
-                StatVolume = Fmt.Smart(s.StoredVolumeM3); StatVolumeNote = "Water ponding in bluespots";
+                StatModel = "Quick check (instant model) · ponds filled at the end of the rain";
+                StatVolume = Fmt.Smart(s.StoredVolumeM3); StatVolumeNote = "Water standing in ponds (bluespots)";
                 StatArea = Fmt.Smart(s.AreaOver10CmM2);
                 StatAreaTone = s.AreaOver10CmM2 > 0 ? "Danger" : "Good";
                 StatMaxDepth = Fmt.N(s.MaxDepthM, "0.00");

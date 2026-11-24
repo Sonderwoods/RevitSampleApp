@@ -33,10 +33,18 @@ use the desktop app or `Cloudburst Web.bat`.
 Run the app with `python serve.py` (not `python -m http.server`). It serves the files and relays DHM requests to
 Datafordeler/Dataforsyningen, so the browser's CORS rules don't block the download.
 
-On the start page, click **Pick a location**:
+On the start page, under **Your own site**, click **Find a place in Denmark**:
 1. Search an address (OpenStreetMap search) or click the map to place the square, then pick its size.
 2. Paste a **Datafordeler API key** or a **Dataforsyningen token**. If you tick "Remember", it is kept only in your browser.
-3. Click **Fetch terrain & open**. DHM/Terræn is downloaded as a GeoTIFF and opened as a new site.
+3. Click **Download terrain & open**. DHM/Terræn is downloaded as a GeoTIFF and opened as a new site.
 
-Real-site cards (Tåsinge Plads, …) also have a **Fetch terrain with API key** button. The key is never written to
-disk by the server and is not logged.
+Real-site cards (Tåsinge Plads, …) open a page with a **Download terrain…** button and a drop zone for a terrain
+file. The key is never written to disk by the server and is not logged.
+
+## How the app is laid out (for contributors)
+
+The workspace's left panel is the job in six numbered steps: **Site → Rain → Surfaces & drainage → Run → Compare
+designs → Export** (`#step-site`, `#step-rain`, `#step-surfaces`, `#step-run`, `#step-compare`, `#step-export`). The map
+is in the middle, results on the right. New site sources and export actions are added through `js/hooks.js`
+(`addSiteSource`, `addExportAction`), not by editing `app.js`. Plain-language explanations of technical terms live in
+`js/terms.js`. The UX review is in [../docs/reviews/ux-review.md](../docs/reviews/ux-review.md).
