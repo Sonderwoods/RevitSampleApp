@@ -27,9 +27,20 @@ namespace Cloudburst.Materials
         /// <summary>When true and a soil class is known, M2 takes Horton parameters from the JB soil table.</summary>
         [JsonPropertyName("useSoilTable")] public bool UseSoilTable { get; set; }
         [JsonPropertyName("compacted")] public bool Compacted { get; set; } = true;
-        /// <summary>Extra storage (sub-base, ponding), mm — added to the initial loss bucket.</summary>
+        /// <summary>Storage below the surface, mm. With <see cref="SubsoilLimited"/> it is the sub-base reservoir that fills
+        /// with infiltrated water and drains to the subsoil; otherwise it is added to the initial-loss bucket.
+        /// See docs/physics-permeability.md.</summary>
         [JsonPropertyName("storageMm")] public double StorageMm { get; set; }
+        /// <summary>Informational design ponding depth (rain garden, swale, basin). Not applied by the engine: model the
+        /// depression in the terrain.</summary>
         [JsonPropertyName("pondingMm")] public double PondingMm { get; set; }
+        /// <summary>Engineered permeable surface on a sub-base: entry is limited by sub-base room plus subsoil drainage
+        /// (JB soil fc). Keep in the palette so the engine sees it after a .NET round trip.</summary>
+        [JsonPropertyName("subsoilLimited")] public bool SubsoilLimited { get; set; }
+        /// <summary>Whether the sewer drains this surface. Null = same as <see cref="Sealed"/>. False for open water.</summary>
+        [JsonPropertyName("sewerConnected")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public bool? SewerConnected { get; set; }
         [JsonPropertyName("color")] public string Color { get; set; } = "#888888";
         [JsonPropertyName("keywords")] public List<string> Keywords { get; set; } = new List<string>();
 

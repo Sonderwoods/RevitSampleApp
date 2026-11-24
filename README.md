@@ -118,6 +118,7 @@ Notes:
 | Floodplain depression filling (EA Test 2 style) | `tests/benchmarks.rs` | ✅ volume conserved, flat levels |
 | M1 fill–spill conservation and cascades | `instant::tests` | ✅ |
 | Retention vs hand calculation | `retention::tests` | ✅ |
+| Infiltration, sub-base storage, losses (closed forms, mass balance with infiltration) | `infiltration::tests`, `tests/permeability.rs` | ✅ see [docs/physics-permeability.md](docs/physics-permeability.md) |
 | EA Test 8A, SCALGO comparison | — | ⏳ needs reference data / test site |
 
 Performance on a 4-core container: M1 1 M cells 0.31 s, 4 M cells 1.6 s. M2 ≈ 55 M cell-steps/s on CPU
