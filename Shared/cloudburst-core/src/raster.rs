@@ -73,6 +73,18 @@ impl Raster {
     }
 }
 
+/// Largest raster accepted (pixels). The decode buffer is sized from the dimensions a file DECLARES, so without a cap
+/// a small crafted file can ask for more memory than the host (Revit / Rhino) has and take it down.
+/// 250 million pixels = 1 GB of f32, about 6 × 6 km of DHM at 0.4 m.
+pub const MAX_PIXELS: usize = 250_000_000;
+
+fn check_size(nx: usize, ny: usize, path: &str) -> Result<(), String> {
+    match nx.checked_mul(ny) {
+        Some(n) if n <= MAX_PIXELS => Ok(()),
+        _ => Err(format!("{path}: raster too large ({nx}×{ny} pixels, limit {} million). Crop it or export a coarser resolution.", MAX_PIXELS / 1_000_000)),
+    }
+}
+
 pub fn read_ascii(path: &str) -> Result<Raster, String> {
     let f = File::open(path).map_err(|e| format!("{path}: {e}"))?;
     parse_ascii(BufReader::new(f), path)
@@ -120,6 +132,7 @@ fn parse_ascii<R: BufRead>(mut rd: R, path: &str) -> Result<Raster, String> {
         let l = l.map_err(|e| e.to_string())?;
         data.extend(l.split_whitespace().filter_map(|v| v.parse::<f32>().ok()));
     }
+    check_size(nx, ny, path)?;
     if nx == 0 || ny == 0 || data.len() < nx * ny {
         return Err(format!("{path}: invalid ASCII grid ({} values for {}×{})", data.len(), nx, ny));
     }
@@ -139,6 +152,7 @@ pub fn read_geotiff(path: &str) -> Result<Raster, String> {
 fn decode_tiff<R: std::io::Read + std::io::Seek>(reader: R, path: &str) -> Result<Raster, String> {
     let mut dec = Decoder::new(reader).map_err(|e| format!("{path}: {e}"))?.with_limits(tiff::decoder::Limits::unlimited());
     let (w, h) = dec.dimensions().map_err(|e| e.to_string())?;
+    check_size(w as usize, h as usize, path)?;
     // The tiff crate maps the GeoTIFF tag numbers to NAMED variants when it reads a file, so they must be looked up by
     // name: `Tag::Unknown(33550)` never matches and silently dropped all georeferencing and NoData (fixed 2026-11).
     let scale = dec.get_tag_f64_vec(Tag::ModelPixelScaleTag).ok();
